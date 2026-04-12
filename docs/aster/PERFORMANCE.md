@@ -28,29 +28,107 @@ PR #583 reduces `poll_socket` to 668K blocks (−50.7%) and eliminates the
 
 ## Candidate Improvements (Prioritized)
 
-### 1. SPSC Ring Buffer for Endpoint ↔ Connection Communication
+### 1. SPSC Ring Buffer for Endpoint ↔ Connection Communication — INVESTIGATED, DEFERRED
+
+**Status:** Investigated 2026-04-12. Deferred. Two of the roadmap's factual
+premises about this item are wrong; the performance concern doesn't
+materialize on measured workloads. Revisit only if paired with items 2 and 7
+as a joint dispatch-rework — none of those individually show signal.
 
 **Aeron concept:** `OneToOneRingBuffer` — pre-allocated power-of-2 buffer,
 single-writer tail advance (no CAS), cached head position to reduce
 cross-core cache line bouncing, padding records at wrap boundaries.
 
 **Current noq:** `mpsc::UnboundedSender<ConnectionEvent>` per connection
-(`endpoint.rs:680`). Tokio's unbounded channel is a linked list — each
-`send()` allocates a node. No backpressure.
+(`endpoint.rs:680`), one forward channel per connection, used on the recv
+dispatch hot path at `endpoint.rs:937`.
 
-**Expected impact:** Eliminates per-datagram channel node allocation, provides
-natural backpressure, reduces atomic operations on the dispatch hot path.
-Most impactful at high connection counts (100+) and high packet rates.
+#### Investigation Findings
 
-**How to prove:** Add a connection-scaling benchmark (100, 1000, 10000
-concurrent connections with modest traffic each). Profile channel allocation
-overhead with dhat. Microbenchmark Tokio unbounded mpsc vs custom SPSC ring
-for the specific message types used.
+##### Finding 1: the "each `send()` allocates a node" claim is false
 
-**Effort:** 2–3 days. Medium-high complexity — touches the endpoint/connection
-communication contract.
+Tokio's `mpsc::unbounded` is **not** a per-message linked list — it is a
+linked list of **blocks of ~32 message slots**, with an internal freelist
+that recycles blocks within a channel. Per-message allocations do not
+happen at steady state.
 
-**Prerequisite:** PR #583 accepted (establishes allocation profiling pattern).
+Verified against the dhat-heap.json from the item-4 baseline run
+(`noq-perf` client, 100M up + 100M down, 10 s, ~167K packets/sec,
+~1.67M total datagram sends):
+
+| Frame | Blocks | Bytes |
+|----|----|----|
+| All tokio channel / mpsc / notify allocations combined | **38** | **25 KB** |
+| `tokio::sync::mpsc::block::Block<T>::new` (the allocation per block) | **2** | ~9.5 KB |
+
+If per-send allocations were happening as the roadmap claims, we would
+expect ~1.67M or ~52K (amortized at 32 slots/block) allocations from that
+frame. We see **two** over the entire run.
+
+##### Finding 2: dispatch does not saturate at high connection counts
+
+The roadmap predicted item 1 would be "most impactful at high connection
+counts (100+) and high packet rates". Measured with `bench/bulk --clients N`
+on `perf/item-4-base` (14-core M-series macOS, localhost, bidirectional):
+
+| N clients | Wall | Agg upload | Agg download | Agg total |
+|----|----|----|----|----|
+| 1 | 0.29 s | 101 MiB/s | 101 MiB/s | **1.62 Gb/s** |
+| 10 | 2.5 s | 130 | 112 | **1.94 Gb/s** |
+| 100 | 9.0 s | 331 | 115 | **3.57 Gb/s** |
+| 500 | 20.3 s | 825 | 229 | **8.43 Gb/s** |
+| 1000 | 25.7 s | 1053 | 295 | **10.8 Gb/s** |
+
+Single-endpoint server aggregate upload grows from 101 MiB/s at N=1 to
+1053 MiB/s at N=1000 — a 10× increase as connection count grows 1000×.
+At ~1200-byte packets, N=1000 recv dispatch is handling **~700K
+packets/sec** — the exact workload item 1 was supposed to address — and
+still has headroom (aggregate throughput was still growing with N, not
+flattening).
+
+The per-client throughput degrades (101 → 1.3 MiB/s) but that is driven
+by 1001 threads (1 server + 1000 clients) sharing 14 cores on a single
+host, not by server dispatch saturation. The widening asymmetry between
+upload (1053) and download (295) at high N further suggests the
+bottleneck at scale is send-side (`poll_transmit`) or client-side read,
+not recv dispatch.
+
+#### Conclusion
+
+Item 1 attacks a bottleneck that does not exist on measured workloads.
+The per-send allocation story is wrong, and the expected dispatch
+saturation under connection scaling does not occur.
+
+An SPSC ring buffer would still have two plausible arguments in its
+favor, neither of which is justified in isolation:
+
+1. **Cache locality / wake coalescing.** An SPSC ring buffer with inline
+   storage has better cache behavior than a per-channel linked list of
+   blocks + waker, and could reduce wakeup costs. But this only matters
+   if item 7 (shared connection driver) also lands — otherwise every
+   connection still has its own Tokio task with its own waker.
+2. **Backpressure.** The roadmap correctly notes that `mpsc::unbounded`
+   has no backpressure. A bounded SPSC ring does. But this is a
+   correctness/DoS-resistance improvement, not a throughput improvement,
+   and should be pursued (if at all) through a bounded `mpsc::channel`
+   replacement, not a custom SPSC — the effort is an order of magnitude
+   smaller and upstream-friendly.
+
+#### Recommendation
+
+**Skip item 1 as a standalone change.** The premise is wrong and the
+measurement does not support the framing.
+
+If dispatch overhead ever shows up as a real bottleneck on some workload
+we care about, the right unit of work is items **1 + 2 + 7 together**
+(SPSC + split endpoint mutex + shared driver) as a coordinated
+dispatch-path rework, validated first against that workload. Until such
+a workload is identified, the estimated 2–3 days for item 1 alone are
+better spent elsewhere.
+
+If the **backpressure / DoS-resistance** concern is the real motivation
+(not throughput), open a separate bounded-channel proposal — it is a
+much smaller change and does not need SPSC.
 
 ---
 
