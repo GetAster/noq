@@ -386,7 +386,11 @@ stream ID.
 
 ---
 
-### 6. Adaptive Idle Strategy (BackoffIdleStrategy)
+### 6. Adaptive Idle Strategy (BackoffIdleStrategy) — INVESTIGATED, DEFERRED
+
+**Status:** Investigated 2026-04-12. Deferred. The effect item 6 targets is
+real but bounded to ~10–20 µs per cold request, which is invisible on all
+of Aster's expected workloads.
 
 **Aeron concept:** Progressive backoff state machine:
 `NOT_IDLE → SPINNING (10 spins) → YIELDING (5 yields) → PARKING (1µs→1ms)`.
@@ -396,14 +400,76 @@ Reset on work detection.
 Tokio's waker, which parks the task immediately. First packet after idle pays
 full task wake-up cost.
 
-**Expected impact:** Reduced p99/p99.9 latency for request-response workloads
-with variable inter-request gaps.
+#### Investigation Findings
 
-**How to prove:** Extend the `perf` binary to capture p99.9 and p99.99
-latency. Run request-response benchmark with varying inter-request gaps.
+Measured using `noq-perf client` in request-response mode on
+`perf/item-4-base`, 1024 B upload + 1024 B download per request, localhost,
+14-core M-series macOS.
 
-**Effort:** 0.5 days. Config knob on the endpoint driver: spin for N
-iterations before yielding to the runtime.
+**Pipelined (`--bi-requests 8`, no genuine idle time — steady state):**
+
+| Percentile | Upload duration | FBL (server processing) |
+|----|----|----|
+| P0 | 28 µs | 0 |
+| P50 | 79 µs | 0 |
+| P90 | 107 µs | 24 µs |
+| P100 | 5.74 ms | 5.50 ms |
+
+Median round-trip is 79 µs, P90 107 µs, FBL P90 24 µs. The P100 outlier
+(5.74 ms upload / 5.50 ms FBL, co-located in the same request) is a
+single-request scheduler hiccup, not an idle-wake phenomenon — item 6
+cannot touch it.
+
+**Sequential (`--bi-requests 1`, dominated by QUIC delayed-ACK on fin):**
+
+Upload P50 = 26.4 ms, RPS = 38. This is driven by QUIC's default
+`max_ack_delay` (25 ms) being exercised on every stream finish because
+there is no pipelining to trigger an immediate ACK. Item 6 is not the
+right tool for this — the right tool is tuning `ack_frequency_config`,
+which is unrelated to idle strategy.
+
+#### Cost analysis
+
+Item 6 specifically targets the latency of the *first packet after the
+driver has parked*. Tokio's task unpark on macOS is approximately
+5–20 µs depending on runtime configuration and load. An adaptive idle
+strategy (spin-before-park) could plausibly eliminate this on cold
+requests, saving **at most ~20 µs per cold request**.
+
+The workloads where this matters must satisfy **all three**:
+1. Inter-request gap long enough for the driver to actually park (>100 µs typically)
+2. Request latency dominated by the unpark cost (so <1 ms total)
+3. User/application actually sensitive to sub-100-µs latency variations
+
+Aster's real workloads do not satisfy any of these:
+- Stream-heavy (blob transfer, gossip), not sparse RPC
+- WAN deployment: RTT is 20–200 ms, so 20 µs is 0.01–0.1% of one round trip
+- Latency envelope is already dominated by network, not local dispatch
+
+Even for the localhost dev-loop use case (which *could* benefit), the
+improvement is ~20 µs on ~80 µs requests — ~25% — but only for genuinely
+idle-then-wake requests. A bench that actually exercises this pattern
+does not exist and would have to be built.
+
+#### The real localhost latency issue (out of scope for item 6)
+
+The sequential-request test surfaced an unrelated but larger issue: the
+default ack delay is 25 ms, which dominates any sub-millisecond latency
+concern on single-flight request-response workloads. If latency
+optimization is ever a real Aster goal, the first lever is
+`AckFrequencyConfig` / `max_ack_delay`, not idle strategy. This is a
+10³× larger opportunity than item 6 on the workload where it matters.
+
+#### Recommendation
+
+**Skip item 6.** The theoretical ceiling is ~20 µs per cold request,
+which is below noise on every workload Aster cares about. If a
+"localhost dev-loop cold request latency" concern is ever raised, the
+fix is either (a) pin the driver to a CPU and disable parking, or
+(b) tune `max_ack_delay`. Item 6 as specified is not the right
+intervention.
+
+**Effort:** 0.5 days estimated, but no reason to spend it.
 
 ---
 
