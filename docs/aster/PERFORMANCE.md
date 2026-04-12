@@ -101,28 +101,129 @@ rates and goodput.
 
 ---
 
-### 4. BytesMut Recv Buffer Pooling
+### 4. BytesMut Recv Buffer Pooling — INVESTIGATED, DEFERRED
+
+**Status:** Investigated 2026-04-12. Deferred. Not worth pursuing at
+single-connection localhost workloads. May be revisited under items 1/2/7
+(high connection count scaling) once those change the dispatch architecture.
 
 **Aeron concept:** Pre-allocated term buffers that are recycled after consumers
 finish processing.
 
 **Current noq (after PR #583):** Each consumed recv slot is refilled with
-`BytesMut::zeroed(chunk_size)` — a fresh allocation per batch slot per recv
-cycle (~668K allocations for a 200 MB transfer).
+`BytesMut::zeroed(chunk_size)` at `noq/src/endpoint.rs:878`. Dhat confirms this
+is the dominant remaining allocation site in the recv path.
 
-**Expected impact:** Eliminates the remaining recv-path allocations by
-recycling BytesMut buffers that the proto layer has dropped. Requires
-tracking buffer lifecycle or using a thread-local pool.
+#### Investigation Findings
 
-**How to prove:** dhat before/after showing `poll_socket` allocation count
-dropping toward zero. Would also show up in Criterion throughput benchmarks
-for small-packet workloads.
+Measured on `perf/item-4-base` (merge of #582 dhat + #583 zero-copy),
+`noq-perf` client, localhost, 100 MB upload + 100 MB download, 10 s duration.
 
-**Effort:** 1 day. Either a `VecDeque<BytesMut>` pool on `RecvState` with a
-custom drop hook, or leverage the allocator's thread-local free lists (which
-already provide some of this benefit implicitly).
+**Baseline dhat allocations (client side):**
 
-**Prerequisite:** PR #583 accepted.
+| Metric | Value |
+|----|----|
+| Total program allocations | 892,996 blocks / 239 MB |
+| `poll_socket` total | 107,515 blocks / 158 MB |
+| Dominant site `endpoint.rs:878` (`BytesMut::zeroed`) | 107,512 blocks / 158 MB |
+| % of `poll_socket` at single site | 99.997% |
+| Per-allocation size | ~1472 B (one MTU slot) |
+
+**Baseline native throughput (5-run mean, 5 s per run):**
+
+| Direction | Mean | Range | σ |
+|----|----|----|----|
+| Upload | 1619.1 Mb/s | 1588.5–1639.9 | ~20 |
+| Download | 1643.5 Mb/s | 1635.8–1655.7 | ~8 |
+
+**Run-to-run noise floor: ±2% upload, ±1% download.**
+
+#### Cost analysis
+
+At 1.6 Gbps per direction and ~1200 B packets, the recv path sees
+~167K packets/sec. Each packet triggers one `BytesMut::zeroed(1472)` call at
+line 878 (slot handoff via `mem::replace` leaves empty slots that fail the
+`capacity < chunk_size` check next cycle):
+
+- **Memset bandwidth:** 167K × 1472 B ≈ **246 MB/s** zero-fill traffic.
+  Modern CPU memory bandwidth is ~20–50 GB/s, so this is ~0.5–1% of
+  available bandwidth. Negligible.
+- **Allocation rate:** 167K/sec. Modern allocators (jemalloc, macOS libmalloc)
+  sustain >10M allocations/sec for small allocations served from thread-local
+  caches. 167K/sec is ~1–2% of a thread's alloc budget. Negligible.
+
+**Predicted upper bound on throughput improvement: <3%.**
+
+#### Empirical verification
+
+Built `perf/experiment-skip-zero` (throwaway) with the zero-fill replaced by
+`BytesMut::with_capacity` + `unsafe set_len` — eliminates both the memset
+bytes and the `BytesMut::zeroed` allocation count at line 878. This variant
+is UB per Rust's memory model (creates a `&mut [u8]` over uninitialized
+memory before `recvmmsg` writes it) and was only used for measurement.
+
+**Skip-zero throughput (5-run mean, two sessions, 5 s per run):**
+
+| Session | Upload mean | Delta vs baseline | Download mean | Delta vs baseline |
+|----|----|----|----|----|
+| Skip-zero session 1 | (not captured) | — | 1662.7 Mb/s | +1.2% |
+| Skip-zero session 2 | 1600.0 Mb/s | −1.2% | 1643.3 Mb/s | 0.0% |
+
+**Result: all measured deltas are within the ±2% baseline noise floor.**
+Eliminating the entire recv-slot allocation+memset cost produces no
+detectable throughput improvement on single-connection localhost bulk
+transfer. The 107K dhat-visible allocations are real but their wall-clock
+cost is dominated by other work on this workload (crypto, kernel transitions,
+QUIC state machine).
+
+#### Why the roadmap's framing was misleading
+
+The original roadmap entry was based on dhat block counts (107K–668K,
+depending on run length), which make the recv slot refill look like a hot
+spot. Block counts tell us how *often* allocations happen, not how *expensive*
+they are. For small, thread-local-cacheable allocations with corresponding
+small memsets, frequency does not translate to wall-clock cost.
+
+Item 4 would still matter in three scenarios, none of which apply to the
+localhost bulk-transfer workload we measured:
+
+1. **High connection count (1000+).** Per-connection recv state multiplies
+   allocation pressure; may stress allocator global locks. Items 1/2/7 are
+   better suited to address this since they rearchitect dispatch.
+2. **Platforms with slower allocators** (e.g., default Windows heap) where
+   per-allocation overhead is an order of magnitude higher than
+   jemalloc/libmalloc's tcache-served small allocations.
+3. **Memory-bandwidth-starved CPUs** (embedded / ARM with small caches)
+   where 246 MB/s of zero-fill may displace working-set data.
+
+None of these are Aster's primary deployment target.
+
+#### Proper implementation (if ever resurrected)
+
+Drop-hook recycling requires either:
+- **(a)** A custom `PooledBytesMut` wrapper type replacing `BytesMut` on the
+  recv → proto → connection dispatch path. Invasive (~20 files), proto API
+  diverges from upstream quinn.
+- **(b)** Forking the `bytes` crate to add a drop hook to `BytesMut`. Ugly
+  dependency fork.
+- **(c)** Restructuring proto to use out-of-place AEAD decryption so `Bytes`
+  (immutable, supports `Bytes::from_owner` drop hook) works as the handoff
+  type. Large proto change.
+
+`try_reclaim` after `handle()` does not work because proto stashes buffer
+refs inside `DatagramEvent::ConnectionEvent` (in `DatagramConnectionEvent`)
+and dispatches them asynchronously to connection tasks — refcount is >1
+by the time control returns to the recv loop.
+
+#### Recommendation
+
+**Skip item 4. Proceed directly to item 1** (SPSC ring buffer for
+endpoint↔connection dispatch). Items 1 and 2 restructure the recv dispatch
+path in ways that will likely obsolete the current recv_bufs design entirely,
+making any item 4 implementation throwaway work.
+
+**Prerequisite:** PR #583 accepted (for the zero-copy baseline these
+measurements are relative to).
 
 ---
 
