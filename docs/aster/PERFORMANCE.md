@@ -132,7 +132,12 @@ much smaller change and does not need SPSC.
 
 ---
 
-### 2. Split Endpoint Mutex (Driver-Owned vs Shared State)
+### 2. Split Endpoint Mutex (Driver-Owned vs Shared State) — INVESTIGATED, DEFERRED
+
+**Status:** Investigated 2026-04-12. Deferred. Directly measured: cumulative
+contention on the endpoint `Mutex<State>` is below 1% of wall-clock time
+even at N=500 concurrent connections. The theoretical upside is far below
+the ±2% measurement noise floor.
 
 **Aeron concept:** Single-writer principle. The conductor owns mutable state
 exclusively; publications/subscriptions communicate through lock-free
@@ -141,19 +146,75 @@ structures. No mutex on data paths.
 **Current noq:** Single `Mutex<State>` on `EndpointInner` (`endpoint.rs:457`),
 held across the entire `drive_recv` + `handle_events` cycle. Every
 `accept()`, `local_addr()`, `open_connections()`, `stats()` call from
-application code contends on this same lock.
+application code shares this lock.
 
-**Expected impact:** Removes the mutex from the recv hot path entirely.
-Matters under concurrent access patterns (accepting connections while
-processing traffic). Less impactful for single-connection benchmarks.
+#### Investigation Findings
 
-**How to prove:** Add a benchmark with concurrent accept + high-rate traffic.
-Use the existing lock duration tracking (`noq/src/mutex.rs`) to measure
-contention before/after. Profile with `mutrace` on Linux.
+The existing `noq/src/mutex.rs` tracking Mutex wraps the *connection*
+state mutex, not the endpoint state mutex. For this measurement we
+dropped in a throwaway `InstrumentedMutex<T>` wrapper on
+`perf/experiment-mutex-instrument` that records per-acquisition wait
+and hold time via `AtomicU64`, with aggregate stats printed via
+`eprintln` on `Drop` (to survive tracing subscriber teardown).
 
-**Effort:** 1–2 days. Requires splitting `State` into `DriverState`
-(owned exclusively by the driver task, no mutex) and `SharedState`
-(behind a lightweight lock or atomics for stats/ref_count/waker).
+Measured with `bench/bulk --clients N`, localhost, 14-core M-series
+macOS, server-side endpoint `Mutex<State>`:
+
+| N | Acquisitions | Wall | Wait total | Hold total | Wait / wall | Hold / wall | Avg wait |
+|----|----|----|----|----|----|----|----|
+| 1 | 3,412 | 0.4 s | 0.11 ms | 17.5 ms | **0.03%** | 4.4% | 32 ns |
+| 10 | 13,178 | 1.2 s | 2.19 ms | 512.9 ms | **0.19%** | 42.7% | 166 ns |
+| 100 | 117,862 | 8.2 s | 23.7 ms | 4806.1 ms | **0.29%** | 58.6% | 201 ns |
+| 500 | 290,322 | 22.4 s | 167.0 ms | 10,442.9 ms | **0.75%** | 46.6% | 575 ns |
+
+**`wait_total` is the aggregate time *any* thread spent blocked
+acquiring this lock over the entire run.** It is the upper bound on
+what splitting the mutex can save — you cannot save more wall-clock
+than you currently lose to waiting.
+
+#### Interpretation
+
+**The 50% `hold/wall` ratio at N≥100 is misleading on first read.** The
+endpoint driver holds the lock roughly half the wall-clock time while
+processing recv batches, but "hold time" only becomes "contention" when
+another thread is actually blocked waiting. Waiters see average waits
+of **32–575 ns**, which is the fast-path uncontended
+`std::sync::Mutex::lock` cost — real blocking waits are microseconds,
+not nanoseconds. The driver holds the lock for half the wall-clock
+time, but effectively nobody else is meaningfully waiting.
+
+Contention *does* grow with N — wait/wall climbs from 0.03% at N=1 to
+0.75% at N=500, a 25× increase — but the absolute level is nowhere
+close to a measurable fraction of throughput. Extrapolating the trend,
+it would take roughly N=5000+ concurrent connections on a single
+endpoint to push contention above the ±2% noise floor, and at that
+point host-CPU starvation dominates any single-lock cost anyway.
+
+The roadmap's framing — "every `accept()`, `local_addr()`,
+`open_connections()`, `stats()` call from application code contends" —
+is strictly accurate at the API level, but the measured contention
+shows these calls are *not actually concurrent with the driver at any
+meaningful rate* on measured workloads. The driver's lock acquisitions
+dominate count (~290K over 22s at N=500), application-thread
+acquisitions are noise by comparison.
+
+#### Recommendation
+
+**Skip item 2 as a standalone change.** Splitting `State` into
+`DriverState` + `SharedState` would be a correctness-risky refactor
+(the `State` fields are interdependent — `inner`, `recv_state`,
+`socket`, `events` all coordinate during event handling) for at most
+~0.75% wall-clock improvement on the worst measured workload. Not
+justified.
+
+Revisit only if a specific workload emerges where application threads
+call endpoint APIs at high rate concurrently with heavy traffic (e.g.,
+a stats-scraping sidecar polling `stats()` at kHz rates during active
+transfers). Aster does not have such a workload.
+
+**Experimental branch:** `perf/experiment-mutex-instrument` — deleted
+after measurement. The instrumented Mutex wrapper it added is not a
+candidate for merging.
 
 ---
 
