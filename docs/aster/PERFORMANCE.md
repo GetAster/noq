@@ -218,25 +218,41 @@ candidate for merging.
 
 ---
 
-### 3. Send Pacing
+### 3. Send Pacing — CLOSED, ALREADY IMPLEMENTED
+
+**Status:** Investigated 2026-04-12. **The roadmap's premise is factually
+wrong.** Noq already has a complete token-bucket pacer at
+`noq-proto/src/connection/pacing.rs` (326 lines, including comprehensive
+tests). The roadmap claimed "there is no inter-packet pacing" — this is
+false.
 
 **Aeron concept:** `ControlledMessageDrain` — spread transmissions evenly
 across RTT intervals instead of bursting.
 
-**Current noq:** `poll_transmit` writes as fast as the congestion window allows
-within a single call. BBR and Cubic control the window size, but there is no
-inter-packet pacing. This can cause buffer bloat at intermediate switches.
+**Actual noq implementation:** `pacing::Pacer` is a token-bucket pacer
+with:
+- Capacity derived from `(window * TARGET_BURST_INTERVAL) / RTT`
+  targeting 2 ms burst intervals
+- Token drain on each `on_transmit(packet_length)`
+- `delay()` returning `Some(Duration)` when the bucket is empty,
+  blocking further sends until tokens refill at 1.25× the congestion
+  window per RTT (per draft-ietf-quic-recovery-34 §7.7)
+- Capacity clamped between `MIN_BURST_SIZE * MTU` and
+  `MAX_BURST_SIZE * MTU` (10–256 MTU-sized packets per burst)
+- Integration at `connection/mod.rs:1939` via `pacing_delay()` and
+  at `packet_builder.rs:316` via `pacing.on_transmit(size)`
 
-**Expected impact:** Reduced packet loss under congestion, improved throughput
-in lossy/WAN conditions. BBR explicitly models a pacing rate that noq doesn't
-currently enforce.
+The pacer is active for all connections, not behind a feature flag. It
+has been present since the quinn-to-noq fork.
 
-**How to prove:** Run the existing netsim benchmarks (WAN: 50ms/100Mbps/0.1%
-loss, Lossy: 20ms/100Mbps/5% loss) before/after. Measure retransmission
-rates and goodput.
+**How this went wrong:** The roadmap was written from Aeron documentation
+("Aeron concept: ControlledMessageDrain") and a surface-level read of
+`poll_transmit` without searching the proto crate for existing pacing
+implementation. A `grep -r pacing noq-proto/src/` would have found it.
 
-**Effort:** 1–2 days. Add a token-bucket or leaky-bucket pacer between
-`poll_transmit` and the socket send path.
+#### Recommendation
+
+**Nothing to do.** The feature already exists and is tested.
 
 ---
 
@@ -366,7 +382,11 @@ measurements are relative to).
 
 ---
 
-### 5. Slab Allocator for Stream State
+### 5. Slab Allocator for Stream State — INVESTIGATED, DEFERRED
+
+**Status:** Investigated 2026-04-12. Deferred. Stream-count scaling
+curve shows no throughput degradation up to 1000 concurrent streams.
+FxHashMap is not a bottleneck.
 
 **Aeron concept:** Arrays indexed by stream/registration ID for O(1) lookup
 with cache-friendly iteration.
@@ -375,14 +395,41 @@ with cache-friendly iteration.
 is fast but each entry is a separate heap allocation, and iteration order is
 random (cache-unfriendly).
 
-**Expected impact:** O(1) access, better cache locality, no hashing overhead.
-Matters for workloads with many concurrent streams (100+).
+#### Investigation Findings
 
-**How to prove:** Add a high-stream-count benchmark. Profile with `perf stat`
-for cache miss rates before/after.
+Measured with `bench/bulk -n N -m N` (N concurrent streams, single
+connection), total data kept constant at ~20 MiB regardless of stream
+count, on `perf/item-4-base`, 14-core M-series macOS:
 
-**Effort:** 1–2 days. Replace `FxHashMap` with `slab` crate, indexed by
-stream ID.
+| Streams | Per-stream | Wall | Upload | Download |
+|----|----|----|----|-----|
+| 1 | 20 MiB | 0.30 s | 100 MiB/s | 100 MiB/s |
+| 10 | 2 MiB | 0.30 s | 97 MiB/s | 97 MiB/s |
+| 100 | 205 KB | 0.28 s | 103 MiB/s | 103 MiB/s |
+| 1000 | 20 KB | 0.27 s | 119 MiB/s | 119 MiB/s |
+
+Throughput is **flat to increasing** as stream count grows 1000×.
+Higher stream counts are actually marginally *faster* because per-stream
+congestion-window startup cost is amortized.
+
+The roadmap's framing that FxHashMap "is fast but each entry is a
+separate heap allocation" mischaracterises how `rustc_hash::FxHashMap`
+works. `FxHashMap` stores entries inline in a flat array (Robin Hood
+hashing / SwissTable depending on version); there is no per-entry heap
+allocation. Cache locality is already good.
+
+#### Recommendation
+
+**Skip item 5.** FxHashMap is not the bottleneck at any measured stream
+count. The slab replacement would trade FxHashMap's flexibility (works
+with any key type, supports deletion without fragmentation) for
+marginal constant-factor improvement that is not visible in throughput.
+
+Revisit only if a `perf stat` profile on a specific workload shows
+L1/LLC cache misses dominated by stream-map iteration — which would
+require a very different workload (10,000+ streams with frequent
+iteration over the full map, not common in Aster's blob/gossip
+patterns).
 
 ---
 
@@ -473,7 +520,15 @@ intervention.
 
 ---
 
-### 7. Shared Connection Driver (Architectural)
+### 7. Shared Connection Driver (Architectural) — DEFERRED, CLOSED BY ITEMS 1 + 2
+
+**Status:** Closed analytically 2026-04-12. Items 1 and 2 established that
+dispatch and mutex contention are not measurable bottlenecks at N=1000
+concurrent connections. Item 7 depends on the same premise — that
+per-connection task scheduling overhead is a material cost. Since dispatch
+throughput kept scaling (10× aggregate from N=1 to N=1000) and mutex
+contention stayed under 0.75% of wall-time, per-connection task overhead
+is not the binding constraint at any measured scale.
 
 **Aeron concept:** Single conductor thread processes all connections in a tight
 loop, avoiding per-connection task scheduling overhead.
@@ -482,15 +537,30 @@ loop, avoiding per-connection task scheduling overhead.
 (`ConnectionDriver`). At scale (thousands of connections), each task has its
 own stack allocation, scheduling overhead, and waker management.
 
-**Expected impact:** Significant at high connection counts (1000+). Reduces
-Tokio runtime scheduling overhead.
-
-**How to prove:** Connection-scaling benchmark measuring CPU per connection.
-
 **Effort:** Very high. Major architectural change to the async wrapper layer.
 Would not change the proto layer.
 
-**Note:** This is a long-term consideration, not a near-term PR.
+#### Why it's closed without a standalone experiment
+
+Item 7's argument is: "at high connection count, per-task scheduling
+overhead (stack allocation, waker management, Tokio runtime scheduling)
+dominates." This only holds if the dispatch path is the bottleneck — but
+item 1's scaling curve showed dispatch handles ~700K packets/sec at
+N=1000 with throughput still growing, and item 2 showed the endpoint
+mutex contributes <0.75% of wall-time at N=500.
+
+If dispatch is not saturated and the mutex is not contended, the remaining
+per-connection costs (stack, waker) are bounded by Tokio's implementation
+and are not reducible by changing the noq architecture. The only scenario
+where item 7 becomes relevant is N=10,000+ connections on a single
+endpoint, which is outside Aster's deployment profile.
+
+#### Recommendation
+
+Do not pursue. If items 1 + 2 are ever resurrected due to a new
+workload showing dispatch saturation, item 7 should be revisited as
+part of the same coordinated rework — it is not independently
+justifiable.
 
 ---
 
