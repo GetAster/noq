@@ -1,5 +1,18 @@
 # noq Security Improvement Roadmap
 
+> **VALIDATION STATUS (2026-04-12):** This roadmap was audited against the
+> actual code. Of 14 items:
+>
+> - **2 CONFIRMED** — items 1 + 2 (submitted as upstream PR #584, verified
+>   reachable from peer ACK frames with call-site trace)
+> - **2 PLAUSIBLE** — items 4 + 9 (code analysis supports the claim, but
+>   no reproduction test yet; do not submit upstream without one)
+> - **10 WRONG / SPECULATIVE / FRAMING ERROR** — items 3, 5, 6, 7, 8,
+>   10, 11, 12, 13, 14 (see per-item status annotations below)
+>
+> **Do not submit any item to upstream without first producing a concrete
+> reproduction** (failing test, exploit vector, or memory-growth demo).
+
 Security audit findings for the noq QUIC implementation, focused on areas
 reachable from untrusted network input.
 
@@ -53,7 +66,7 @@ number, this panics and crashes the process.
 
 ## High
 
-### 3. No Key Zeroization on Drop
+### 3. No Key Zeroization on Drop — FRAMING ERROR, DO NOT SUBMIT
 
 **Location:** `noq-proto/src/crypto/` (all key types)
 
@@ -70,7 +83,7 @@ window), best practice is to zeroize on drop.
 
 ---
 
-### 4. CRYPTO Stream Gap-Based Memory Exhaustion
+### 4. CRYPTO Stream Gap-Based Memory Exhaustion — PLAUSIBLE, NEEDS REPRODUCTION
 
 **Location:** `noq-proto/src/connection/mod.rs:3931`
 
@@ -91,7 +104,7 @@ CRYPTO frames with offsets far ahead of the read cursor.
 
 ---
 
-### 5. Micro-Stream Accumulation (Open/Close Cycling)
+### 5. Micro-Stream Accumulation (Open/Close Cycling) — WRONG, STREAMS ARE CLEANED UP
 
 **Location:** `noq-proto/src/connection/streams/state.rs:823`
 
@@ -112,7 +125,7 @@ of fully-closed stream state.
 
 ---
 
-### 6. Incoming Connection Buffer Limits Insufficient
+### 6. Incoming Connection Buffer Limits Insufficient — WRONG, ALREADY BOUNDED
 
 **Location:** `noq-proto/src/endpoint.rs:696`, `config/mod.rs:230`
 
@@ -129,7 +142,7 @@ deployments should tune this.
 
 ## Medium
 
-### 7. Fuzzing Coverage Gaps
+### 7. Fuzzing Coverage Gaps — TOOLING OBSERVATION, NOT A VULNERABILITY
 
 **Location:** `fuzz/fuzz_targets/`
 
@@ -155,7 +168,7 @@ recently or corpus was not committed.
 
 ---
 
-### 8. Panics Reachable from Untrusted Input
+### 8. Panics Reachable from Untrusted Input — FRAMING ERROR, NOT REACHABLE
 
 Several `panic!`, `unwrap()`, and `unreachable!()` calls exist on paths
 reachable from network input:
@@ -175,7 +188,7 @@ reachable from `Endpoint::handle()`. Replace with `Result` propagation or
 
 ---
 
-### 9. Assembler Defragmentation as Amplification
+### 9. Assembler Defragmentation as Amplification — PLAUSIBLE (MINOR), NEEDS REPRODUCTION
 
 **Location:** `noq-proto/src/connection/assembler.rs:207`
 
@@ -192,7 +205,7 @@ non-contiguous fragments tracked per stream.
 
 ---
 
-### 10. Retry Token Nonce Construction (Non-Standard)
+### 10. Retry Token Nonce Construction (Non-Standard) — SPECULATIVE, NO CONCRETE ATTACK
 
 **Location:** `noq-proto/src/crypto/ring_like.rs:28-70`
 
@@ -212,7 +225,7 @@ argument formally.
 
 ---
 
-### 11. No Explicit Path Count Limit (Multipath)
+### 11. No Explicit Path Count Limit (Multipath) — WRONG, LIMIT IS ENFORCED
 
 **Location:** `noq-proto/src/connection/mod.rs:281`
 
@@ -226,7 +239,7 @@ verify it is enforced on the receive side.
 
 ---
 
-### 12. Windows CMSG Bounds Check Off-by-One
+### 12. Windows CMSG Bounds Check Off-by-One — WRONG, CHECK IS CORRECT
 
 **Location:** `noq-udp/src/cmsg/windows.rs:32`
 
@@ -246,7 +259,7 @@ buffer on Windows.
 
 ## Low
 
-### 13. Stateless Reset Parsing Not Rate-Limited
+### 13. Stateless Reset Parsing Not Rate-Limited — MINOR, O(1) PARSING COST
 
 **Location:** `noq-proto/src/endpoint.rs:279`
 
@@ -256,7 +269,7 @@ limit check. An attacker flooding random CIDs still consumes parsing CPU.
 
 ---
 
-### 14. Idle Timeout Can Be Disabled
+### 14. Idle Timeout Can Be Disabled — FRAMING ERROR, APPLICATION CONFIG CHOICE
 
 **Location:** `noq-proto/src/config/transport.rs:547`
 
