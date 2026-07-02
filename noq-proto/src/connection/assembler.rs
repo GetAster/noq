@@ -1251,9 +1251,9 @@ mod proptests {
                         // Verify data correctness and mark as returned
                         // For ordered reads, bytes_read tracks where we are
                         let start_offset = asm.bytes_read() - n as u64;
-                        for i in 0..n {
+                        for (i, &byte) in buf.iter().enumerate().take(n) {
                             let off = start_offset as usize + i;
-                            prop_assert_eq!(buf[i], data[off], "data corruption at offset {}", off);
+                            prop_assert_eq!(byte, data[off], "data corruption at offset {}", off);
                             prop_assert!(
                                 reference.received[off],
                                 "returned unreceived byte at {}",
