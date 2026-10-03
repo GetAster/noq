@@ -106,6 +106,17 @@ pub enum PollEvent {
         /// The writable stream.
         stream: StreamId,
     },
+    /// The peer opened one or more streams of the given direction.
+    ///
+    /// Call [`PollDriver::accept_stream`] until it returns `None` to obtain their IDs.
+    /// The first data on a peer-opened stream is announced only through this event,
+    /// not through [`PollEvent::StreamReadable`].
+    StreamOpened {
+        /// The connection handle.
+        connection: ConnectionHandle,
+        /// Direction of the newly opened streams.
+        dir: proto::Dir,
+    },
     /// New streams of the given direction may be opened.
     StreamsAvailable {
         /// The connection handle.
@@ -299,6 +310,21 @@ impl PollDriver {
         Ok(state.conn.streams().open(proto::Dir::Uni))
     }
 
+    /// Accept a stream opened by the peer, returning its ID.
+    ///
+    /// Returns `None` once every peer-opened stream of `dir` has been accepted.
+    pub fn accept_stream(
+        &mut self,
+        connection: ConnectionHandle,
+        dir: proto::Dir,
+    ) -> Result<Option<StreamId>, PollDriverError> {
+        let state = self
+            .connections
+            .get_mut(&connection)
+            .ok_or(PollDriverError::UnknownConnection)?;
+        Ok(state.conn.streams().accept(dir))
+    }
+
     /// Accept an incoming connection.
     ///
     /// Returns the connection handle on success.
@@ -473,6 +499,12 @@ impl PollDriver {
                             stream: id,
                         });
                     }
+                    proto::Event::Stream(proto::StreamEvent::Opened { dir }) => {
+                        events.push(PollEvent::StreamOpened {
+                            connection: handle,
+                            dir,
+                        });
+                    }
                     proto::Event::Stream(proto::StreamEvent::Available { dir }) => {
                         events.push(PollEvent::StreamsAvailable {
                             connection: handle,
@@ -510,13 +542,22 @@ impl PollDriver {
                 .conn
                 .poll_transmit(now, SEND_BATCH_SIZE, &mut self.send_buf)
         {
+            // `poll_transmit` may batch up to `SEND_BATCH_SIZE` datagrams into one GSO
+            // transmit. A plain `send_to` has no GSO, so each segment must go out as its
+            // own datagram; sending the batch whole would deliver one oversized datagram
+            // whose trailing packets the peer cannot parse.
             let data = &self.send_buf[..transmit.size];
-            match self.socket.send_to(data, transmit.destination) {
-                Ok(_) => sent += 1,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => {
-                    warn!("UDP send error: {e}");
-                    return Err(e);
+            let segment_size = transmit.segment_size.unwrap_or(transmit.size);
+            for datagram in data.chunks(segment_size) {
+                match self.socket.send_to(datagram, transmit.destination) {
+                    Ok(_) => sent += 1,
+                    // The packets are already committed by `poll_transmit`; dropping the
+                    // rest of the batch is recovered by QUIC loss detection.
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(sent),
+                    Err(e) => {
+                        warn!("UDP send error: {e}");
+                        return Err(e);
+                    }
                 }
             }
         }
