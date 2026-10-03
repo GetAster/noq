@@ -1917,3 +1917,273 @@ impl crate::runtime::Runtime for PanicPropagatingRuntime {
         TokioRuntime.now()
     }
 }
+
+/// `read_into` must surface `ClosedStream` (not panic) after a dropped `read_to_end`
+/// switched the stream to unordered mode.
+#[tokio::test]
+async fn read_into_after_cancelled_read_to_end_is_closed() {
+    let _guard = subscribe();
+    let factory = EndpointFactory::new();
+    let server = factory.endpoint("server");
+    let server_addr = server.local_addr().unwrap();
+    let client = factory.endpoint("client");
+    let done = tokio::sync::SetOnce::new();
+
+    tokio::join!(
+        async {
+            let conn = server.accept().await.unwrap().await.unwrap();
+            let mut recv = conn.accept_uni().await.unwrap();
+            {
+                let fut = pin!(recv.read_to_end(usize::MAX));
+                let mut cx = Context::from_waker(Waker::noop());
+                assert!(fut.poll(&mut cx).is_pending());
+            }
+            let mut buf = [0u8; 8];
+            assert_eq!(
+                recv.read_into(&mut buf).await,
+                Err(crate::ReadError::ClosedStream)
+            );
+            done.set(()).unwrap();
+        },
+        async {
+            let conn = client
+                .connect(server_addr, "localhost")
+                .unwrap()
+                .await
+                .unwrap();
+            let mut send = conn.open_uni().await.unwrap();
+            send.write_all(b"hello").await.unwrap();
+            done.wait().await;
+        },
+    );
+}
+
+/// `read_into` yields the exact bytes of a multi-packet stream and EOF as `Ok(None)`.
+#[tokio::test]
+async fn read_into_roundtrip_and_eof() {
+    let _guard = subscribe();
+    let factory = EndpointFactory::new();
+    let server = factory.endpoint("server");
+    let server_addr = server.local_addr().unwrap();
+    let client = factory.endpoint("client");
+    let payload: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+    let expected = payload.clone();
+
+    tokio::join!(
+        async {
+            let conn = server.accept().await.unwrap().await.unwrap();
+            let mut recv = conn.accept_uni().await.unwrap();
+            let mut out = Vec::new();
+            let mut buf = [0u8; 1500];
+            while let Some(n) = recv.read_into(&mut buf).await.unwrap() {
+                assert!(n > 0);
+                out.extend_from_slice(&buf[..n]);
+            }
+            assert_eq!(out, expected);
+            assert_eq!(recv.read_into(&mut buf).await.unwrap(), None);
+            conn.close(0u32.into(), b"done");
+        },
+        async {
+            let conn = client
+                .connect(server_addr, "localhost")
+                .unwrap()
+                .await
+                .unwrap();
+            let mut send = conn.open_uni().await.unwrap();
+            send.write_all(&payload).await.unwrap();
+            send.finish().unwrap();
+            let _ = conn.closed().await;
+        },
+    );
+}
+
+/// Loopback smoke test for [`crate::poll_driver::PollDriver`]: two drivers on
+/// non-blocking std sockets, driven synchronously with no async runtime. The client
+/// opens a bidirectional stream and sends a multi-packet payload; the server accepts
+/// the stream, reads it to EOF via `stream_recv` and echoes it back; the client reads
+/// the echo to EOF. Both payloads must match byte for byte.
+#[test]
+fn poll_driver_loopback_bi_stream_echo() {
+    use crate::poll_driver::{PollDriver, PollDriverError, PollEvent};
+    use proto::{ConnectionHandle, Dir, StreamId};
+    use std::collections::HashMap;
+
+    let _guard = subscribe();
+    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+    let key = PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    let server_config =
+        crate::ServerConfig::with_single_cert(vec![cert.cert.der().clone()], key).unwrap();
+    let mut roots = RootCertStore::empty();
+    roots.add(cert.cert.der().clone()).unwrap();
+    let client_config = ClientConfig::with_root_certificates(Arc::new(roots)).unwrap();
+
+    let bind = || {
+        let socket = UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        socket
+    };
+    let server_socket = bind();
+    let server_addr = server_socket.local_addr().unwrap();
+    let mut server = PollDriver::new(
+        server_socket,
+        proto::Endpoint::new(
+            Arc::new(EndpointConfig::default()),
+            Some(Arc::new(server_config)),
+            true,
+        ),
+    );
+    let mut client = PollDriver::new(
+        bind(),
+        proto::Endpoint::new(Arc::new(EndpointConfig::default()), None, true),
+    );
+
+    let payload = gen_data(256 * 1024, 7);
+    let now = std::time::Instant::now();
+    let client_conn = client
+        .connect(now, client_config, server_addr, "localhost")
+        .unwrap();
+
+    /// Drain a stream into `out`; returns true once EOF has been observed.
+    fn drain(
+        driver: &mut PollDriver,
+        conn: ConnectionHandle,
+        stream: StreamId,
+        out: &mut Vec<u8>,
+    ) -> bool {
+        let mut buf = [0u8; 4096];
+        loop {
+            match driver.stream_recv(conn, stream, &mut buf) {
+                Ok(0) => return true,
+                Ok(n) => out.extend_from_slice(&buf[..n]),
+                Err(PollDriverError::Read(proto::ReadError::Blocked)) => return false,
+                Err(e) => panic!("stream_recv failed: {e}"),
+            }
+        }
+    }
+
+    /// Write as much of `data[*sent..]` as flow control allows; finish once all is sent.
+    fn pump(
+        driver: &mut PollDriver,
+        conn: ConnectionHandle,
+        stream: StreamId,
+        data: &[u8],
+        sent: &mut usize,
+        finished: &mut bool,
+    ) {
+        while *sent < data.len() {
+            match driver.stream_send(conn, stream, &data[*sent..]) {
+                Ok(n) => *sent += n,
+                Err(PollDriverError::Write(proto::WriteError::Blocked)) => return,
+                Err(e) => panic!("stream_send failed: {e}"),
+            }
+        }
+        if !*finished {
+            driver.stream_finish(conn, stream).unwrap();
+            *finished = true;
+        }
+    }
+
+    // Client state
+    let mut client_stream = None;
+    let (mut client_sent, mut client_finished) = (0usize, false);
+    let mut echoed = Vec::new();
+    let mut client_eof = false;
+    // Server state: one accepted bi stream per connection
+    let mut server_streams: HashMap<ConnectionHandle, StreamId> = HashMap::new();
+    let mut received = Vec::new();
+    let mut server_eof = false;
+    let (mut server_sent, mut server_finished) = (0usize, false);
+    let mut server_conn = None;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !client_eof {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "poll_driver loopback timed out: client sent {client_sent}, server received {}, \
+             echoed {}",
+            received.len(),
+            echoed.len()
+        );
+        let now = std::time::Instant::now();
+
+        for event in server.drive(now) {
+            match event {
+                PollEvent::NewConnection(incoming) => {
+                    server_conn = Some(server.accept(incoming, now, None).unwrap());
+                }
+                PollEvent::StreamOpened { connection, dir } => {
+                    assert_eq!(dir, Dir::Bi);
+                    while let Some(id) = server.accept_stream(connection, dir).unwrap() {
+                        assert!(server_streams.insert(connection, id).is_none());
+                    }
+                }
+                PollEvent::ConnectionLost { reason, .. } => {
+                    panic!("server lost connection: {reason}")
+                }
+                _ => {}
+            }
+        }
+        // Read whatever is buffered (newly opened streams are readable without a
+        // separate `StreamReadable` event), then echo once the request is complete.
+        if let (Some(conn), Some(&stream)) = (
+            server_conn,
+            server_conn.and_then(|c| server_streams.get(&c)),
+        ) {
+            if !server_eof {
+                server_eof = drain(&mut server, conn, stream, &mut received);
+            }
+            if server_eof {
+                pump(
+                    &mut server,
+                    conn,
+                    stream,
+                    &received,
+                    &mut server_sent,
+                    &mut server_finished,
+                );
+            }
+        }
+        server.flush_transmits(now).unwrap();
+
+        for event in client.drive(now) {
+            match event {
+                PollEvent::Connected { connection } => {
+                    assert_eq!(connection, client_conn);
+                    client_stream = Some(client.open_bi(client_conn).unwrap().unwrap());
+                }
+                PollEvent::ConnectionLost { reason, .. } => {
+                    panic!("client lost connection: {reason}")
+                }
+                _ => {}
+            }
+        }
+        if let Some(stream) = client_stream {
+            pump(
+                &mut client,
+                client_conn,
+                stream,
+                &payload,
+                &mut client_sent,
+                &mut client_finished,
+            );
+            client_eof = drain(&mut client, client_conn, stream, &mut echoed);
+        }
+        client.flush_transmits(now).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+
+    assert_eq!(received.len(), payload.len());
+    assert!(received == payload, "server received corrupted payload");
+    assert!(echoed == payload, "client received corrupted echo");
+    assert!(client.connection_stats(client_conn).is_some());
+    assert!(client.poll_timeout().is_some());
+
+    client.close(
+        client_conn,
+        std::time::Instant::now(),
+        0u32.into(),
+        Bytes::from_static(b"done"),
+    );
+    client.flush_transmits(std::time::Instant::now()).unwrap();
+}
