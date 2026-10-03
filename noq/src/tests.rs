@@ -1779,6 +1779,50 @@ async fn recv_stream_cancel_read_to_end_then_ordered_read_is_closed() {
     );
 }
 
+/// `read_to_end` on a stream whose end has already been read returns the (empty) remainder,
+/// as before #794, instead of `ClosedStream`. The proto stream is freed once its FIN is read, so
+/// the ordered-mode check must not consult it then. iroh-docs drains each sync stream this way
+/// before closing.
+#[tokio::test]
+async fn read_to_end_after_end_of_stream_is_empty() {
+    let _guard = subscribe();
+    let factory = EndpointFactory::new();
+    let server = factory.endpoint("server");
+    let server_addr = server.local_addr().unwrap();
+    let client = factory.endpoint("client");
+    let reads_done = tokio::sync::SetOnce::new();
+
+    tokio::join!(
+        async {
+            let conn = server.accept().await.unwrap().await.unwrap();
+            let mut recv = conn.accept_uni().await.unwrap();
+            let mut buf = [0; 5];
+            recv.read_exact(&mut buf).await.unwrap();
+            assert_eq!(&buf, b"hello");
+            assert_eq!(recv.read(&mut buf).await, Ok(None));
+            assert_eq!(recv.read_to_end(0).await, Ok(Vec::new()));
+            // A completed `read_to_end` leaves the stream at its end, too.
+            let mut recv = conn.accept_uni().await.unwrap();
+            assert_eq!(recv.read_to_end(usize::MAX).await.unwrap(), b"world");
+            assert_eq!(recv.read_to_end(0).await, Ok(Vec::new()));
+            reads_done.set(()).unwrap();
+        },
+        async {
+            let conn = client
+                .connect(server_addr, "localhost")
+                .unwrap()
+                .await
+                .unwrap();
+            for msg in [&b"hello"[..], b"world"] {
+                let mut send = conn.open_uni().await.unwrap();
+                send.write_all(msg).await.unwrap();
+                send.finish().unwrap();
+            }
+            reads_done.wait().await;
+        },
+    );
+}
+
 /// Regression test for an `active_connections` underflow panic in the endpoint driver.
 ///
 /// `ConnectionSet::insert` used to only increment `active_connections` when the endpoint

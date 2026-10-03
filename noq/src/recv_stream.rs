@@ -234,6 +234,11 @@ impl RecvStream {
     }
 
     fn is_ordered(&self) -> Result<bool, ReadError> {
+        // Once the end of the stream or a reset has been observed, proto may have freed the
+        // stream. Defer to `poll_read_generic`, which reports those outcomes from local state.
+        if self.all_data_read || self.reset.is_some() {
+            return Ok(true);
+        }
         let mut conn = self.conn.lock_without_waking("RecvStream::is_ordered");
         if self.is_0rtt {
             conn.check_0rtt().map_err(|()| ReadError::ZeroRttRejected)?;
