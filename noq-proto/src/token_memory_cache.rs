@@ -1,8 +1,9 @@
 //! Storing tokens sent from servers in NEW_TOKEN frames and using them in subsequent connections
 
+use alloc::{collections::VecDeque, sync::Arc};
 use std::{
-    collections::{HashMap, VecDeque, hash_map},
-    sync::{Arc, Mutex},
+    collections::{HashMap, hash_map},
+    sync::Mutex,
 };
 
 use bytes::Bytes;
@@ -152,7 +153,7 @@ impl CacheEntry {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
+    use alloc::{collections::VecDeque, string::ToString, vec, vec::Vec};
 
     use super::*;
     use rand::prelude::*;

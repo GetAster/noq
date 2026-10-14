@@ -1,10 +1,9 @@
-use std::{
-    collections::HashSet,
+use core::{
     f64::consts::LN_2,
     hash::{BuildHasher, Hasher},
     mem::{size_of, take},
-    sync::Mutex,
 };
+use std::{collections::HashSet, sync::Mutex};
 
 use fastbloom::BloomFilter;
 use rustc_hash::FxBuildHasher;
@@ -254,6 +253,8 @@ const DEFAULT_EXPECTED_HITS: u64 = 1_000_000;
 
 #[cfg(test)]
 mod test {
+    use alloc::vec::Vec;
+
     use super::*;
     use rand::prelude::*;
     use rand_pcg::Pcg32;

@@ -419,13 +419,13 @@ pub(super) enum PadDatagram {
     ToMinMtu,
 }
 
-impl std::ops::BitOrAssign for PadDatagram {
+impl core::ops::BitOrAssign for PadDatagram {
     fn bitor_assign(&mut self, rhs: Self) {
         *self = *self | rhs;
     }
 }
 
-impl std::ops::BitOr for PadDatagram {
+impl core::ops::BitOr for PadDatagram {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {

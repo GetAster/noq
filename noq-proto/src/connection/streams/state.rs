@@ -1,8 +1,6 @@
-use std::{
-    collections::{VecDeque, hash_map},
-    convert::TryFrom,
-    mem,
-};
+use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
+use core::{convert::TryFrom, mem};
+use std::collections::hash_map;
 
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
@@ -580,7 +578,8 @@ impl StreamsState {
     #[cfg(test)]
     fn write_frames_for_test(&mut self, capacity: usize, fair: bool) -> frame::StreamMetaVec {
         let buf = &mut Vec::with_capacity(capacity);
-        let mut tbuf = crate::connection::TransmitBuf::new(buf, std::num::NonZeroUsize::MIN, 1_200);
+        let mut tbuf =
+            crate::connection::TransmitBuf::new(buf, core::num::NonZeroUsize::MIN, 1_200);
         tbuf.start_new_datagram_with_size(capacity);
         let builder = &mut PacketBuilder::simple_data_buf(&mut tbuf);
         let stats = &mut FrameStats::default();
@@ -966,6 +965,8 @@ pub(super) fn get_or_insert_recv(
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use super::*;
     use crate::{
         ReadableError, RecvStream, SendStream, TransportErrorCode, WriteError,

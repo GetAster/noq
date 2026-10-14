@@ -1,5 +1,5 @@
 //! Maintain the state of local connection IDs
-use std::collections::VecDeque;
+use alloc::collections::VecDeque;
 
 use rustc_hash::FxHashSet;
 use tracing::{debug, trace};

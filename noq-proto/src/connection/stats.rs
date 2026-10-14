@@ -129,8 +129,8 @@ impl FrameStats {
     }
 }
 
-impl std::fmt::Debug for FrameStats {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for FrameStats {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let Self {
             acks,
             path_acks,
@@ -316,7 +316,7 @@ pub struct ConnectionStats {
     pub(crate) transmits_tx: u64,
 }
 
-impl std::ops::Add<PathStats> for ConnectionStats {
+impl core::ops::Add<PathStats> for ConnectionStats {
     type Output = Self;
 
     fn add(self, rhs: PathStats) -> Self::Output {
@@ -355,7 +355,7 @@ impl std::ops::Add<PathStats> for ConnectionStats {
     }
 }
 
-impl std::ops::AddAssign<PathStats> for ConnectionStats {
+impl core::ops::AddAssign<PathStats> for ConnectionStats {
     fn add_assign(&mut self, rhs: PathStats) {
         // Be aware that Connection::stats() relies on the fact this function ignores the
         // rtt, cwnd and current_mtu fields.

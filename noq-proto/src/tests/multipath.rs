@@ -1,9 +1,8 @@
 //! Tests for multipath
 
-use std::net::SocketAddr;
-use std::num::NonZeroU32;
-use std::sync::Arc;
-use std::time::Duration;
+use alloc::{boxed::Box, format, sync::Arc, vec, vec::Vec};
+use core::{net::SocketAddr, num::NonZeroU32, time::Duration};
+use std::dbg;
 
 use assert_matches::assert_matches;
 use testresult::TestResult;
@@ -809,7 +808,7 @@ fn per_path_observed_address() -> TestResult {
 
     let mut found_first = false;
     let mut found_second = false;
-    let post_connect_events = std::iter::from_fn(|| pair.poll(Client));
+    let post_connect_events = core::iter::from_fn(|| pair.poll(Client));
     for event in client_events.into_iter().chain(post_connect_events) {
         if let Event::Path(PathEvent::ObservedAddr { id, addr }) = event {
             if id == PathId::ZERO && addr == first_addr {

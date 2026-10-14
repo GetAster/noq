@@ -1,8 +1,5 @@
-use std::{
-    cmp::Ordering,
-    collections::{BinaryHeap, binary_heap::PeekMut},
-    mem,
-};
+use alloc::collections::{BinaryHeap, binary_heap::PeekMut};
+use core::{cmp::Ordering, mem};
 
 use bytes::{Buf, Bytes, BytesMut};
 
@@ -680,6 +677,8 @@ mod test {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod proptests {
+    use alloc::{vec, vec::Vec};
+
     use proptest::prelude::*;
     use rand::RngExt;
     use test_strategy::{Arbitrary, proptest};

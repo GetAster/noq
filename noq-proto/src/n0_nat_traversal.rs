@@ -1,11 +1,12 @@
 //! n0's (<https://n0.computer>) NAT Traversal protocol implementation.
 
-use std::{
-    collections::hash_map::Entry,
+use alloc::vec::Vec;
+use core::{
     fmt::Display,
     net::{IpAddr, SocketAddr},
     time::Duration,
 };
+use std::collections::hash_map::Entry;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::{debug, trace};
@@ -86,7 +87,7 @@ impl CanonicalIpPort {
 }
 
 impl Display for CanonicalIpPort {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.as_canonical_addr().fmt(f)
     }
 }
@@ -891,6 +892,8 @@ pub(crate) fn map_to_local_socket_family(address: IpAddr, ipv6: bool) -> Option<
 
 #[cfg(test)]
 mod tests {
+    use std::dbg;
+
     use testresult::TestResult;
 
     use super::*;
@@ -903,7 +906,7 @@ mod tests {
             .handle_reach_out(
                 ReachOut {
                     round: 1u32.into(),
-                    ip: std::net::Ipv4Addr::LOCALHOST.into(),
+                    ip: core::net::Ipv4Addr::LOCALHOST.into(),
                     port: 1,
                 },
                 true,
@@ -914,7 +917,7 @@ mod tests {
             .handle_reach_out(
                 ReachOut {
                     round: 1u32.into(),
-                    ip: "1.1.1.1".parse().unwrap(), //std::net::Ipv4Addr::LOCALHOST.into(),
+                    ip: "1.1.1.1".parse().unwrap(), //core::net::Ipv4Addr::LOCALHOST.into(),
                     port: 2,
                 },
                 true,

@@ -1,10 +1,12 @@
 #[cfg(feature = "qlog")]
+use alloc::borrow::ToOwned;
+#[cfg(feature = "qlog")]
 use std::path::Path;
-use std::{
+use alloc::sync::Arc;
+use core::{
     fmt,
     net::SocketAddr,
     num::{NonZeroU8, NonZeroU32},
-    sync::Arc,
 };
 
 use crate::{

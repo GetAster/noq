@@ -1,13 +1,11 @@
-use std::{
+use alloc::{boxed::Box, format, sync::Arc, vec, vec::Vec};
+use core::{
     any::Any,
     convert::TryInto,
     mem,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     num::NonZeroUsize,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use assert_matches::assert_matches;
@@ -2518,7 +2516,7 @@ fn datagram_batch_send_drop_oldest() {
     assert!(big.len() < max);
     assert_matches!(
         pair.client_datagrams(client_ch)
-            .send_many(std::slice::from_ref(&big), true),
+            .send_many(core::slice::from_ref(&big), true),
         Err(SendDatagramError::TooLarge)
     );
 }
