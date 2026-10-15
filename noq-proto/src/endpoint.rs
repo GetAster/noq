@@ -14,7 +14,8 @@ use tracing::{debug, error, trace, warn};
 
 use crate::{
     Duration, FourTuple, FxHashMap, HashMap, INITIAL_MTU, Instant, MAX_CID_SIZE, MIN_INITIAL_SIZE,
-    PathId, RESET_TOKEN_SIZE, ResetToken, Side, Transmit, TransportConfig, TransportError,
+    MIN_STATELESS_RESET_SIZE, PathId, RESET_TOKEN_SIZE, ResetToken, Side, Transmit,
+    TransportConfig, TransportError,
     cid_generator::ConnectionIdGenerator,
     coding::{BufMutExt, Decodable, Encodable, UnexpectedEnd},
     config::{ClientConfig, EndpointConfig, ServerConfig},
@@ -105,7 +106,11 @@ impl Endpoint {
                 {
                     self.index.connection_reset_tokens.remove(old.0, old.1);
                 }
-                if self.index.connection_reset_tokens.insert(remote, token, ch) {
+                if self
+                    .index
+                    .connection_reset_tokens
+                    .insert(remote, token, ch, path_id)
+                {
                     warn!("duplicate reset token");
                 }
             }
@@ -1163,16 +1168,17 @@ impl ConnectionIndex {
                 return Some(RouteDatagramTo::Connection(ch, PathId::ZERO));
             }
         }
+        // A stateless reset carries no CID we issued, only the peer's reset token in its last
+        // 16 bytes (RFC 9000 §10.3.1). Route it to the path that token belongs to: a reset
+        // closes the whole connection, but delivering it on its own path means the connection
+        // does not drop it as a packet from an unexpected remote first.
         let data = datagram.data();
-        if data.len() < RESET_TOKEN_SIZE {
+        if data.len() < MIN_STATELESS_RESET_SIZE {
             return None;
         }
-        // For stateless resets the PathId is meaningless since it closes the entire
-        // connection regardless of path.  So use PathId::ZERO.
         self.connection_reset_tokens
             .get(network_path.remote, &data[data.len() - RESET_TOKEN_SIZE..])
-            .cloned()
-            .map(|ch| RouteDatagramTo::Connection(ch, PathId::ZERO))
+            .map(|&(ch, path_id)| RouteDatagramTo::Connection(ch, path_id))
     }
 }
 
@@ -1573,15 +1579,26 @@ impl RetryError {
 ///
 /// The standard `HashMap` is used since both `SocketAddr` and `ResetToken` are
 /// peer generated and might be usable for hash collision attacks.
+///
+/// Each token maps to the connection and the path whose active remote CID it belongs to.
+/// Lookups hash the token with `HashMap`'s randomly keyed SipHash and then compare it with
+/// `ResetToken`'s constant-time equality; the connection repeats the comparison in constant
+/// time before acting on it.
 #[derive(Default, Debug)]
-struct ResetTokenTable(HashMap<SocketAddr, HashMap<ResetToken, ConnectionHandle>>);
+struct ResetTokenTable(HashMap<SocketAddr, HashMap<ResetToken, (ConnectionHandle, PathId)>>);
 
 impl ResetTokenTable {
-    fn insert(&mut self, remote: SocketAddr, token: ResetToken, ch: ConnectionHandle) -> bool {
+    fn insert(
+        &mut self,
+        remote: SocketAddr,
+        token: ResetToken,
+        ch: ConnectionHandle,
+        path_id: PathId,
+    ) -> bool {
         self.0
             .entry(remote)
             .or_default()
-            .insert(token, ch)
+            .insert(token, (ch, path_id))
             .is_some()
     }
 
@@ -1598,7 +1615,7 @@ impl ResetTokenTable {
         }
     }
 
-    fn get(&self, remote: SocketAddr, token: &[u8]) -> Option<&ConnectionHandle> {
+    fn get(&self, remote: SocketAddr, token: &[u8]) -> Option<&(ConnectionHandle, PathId)> {
         let token = ResetToken::from(<[u8; RESET_TOKEN_SIZE]>::try_from(token).ok()?);
         self.0.get(&remote)?.get(&token)
     }

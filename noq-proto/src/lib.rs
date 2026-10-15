@@ -383,6 +383,10 @@ pub struct Transmit {
 /// The maximum number of CIDs we bother to issue per path
 const LOCAL_CID_COUNT: u64 = 12;
 const RESET_TOKEN_SIZE: usize = 16;
+/// Smallest datagram treated as a stateless reset: 5 bytes that look like a short header
+/// packet, then the token (RFC 9000 §10.3). Short header packets below this size are never
+/// valid, so a smaller datagram whose tail equals a token is not a reset.
+const MIN_STATELESS_RESET_SIZE: usize = 5 + RESET_TOKEN_SIZE;
 const MAX_CID_SIZE: usize = 20;
 const MIN_INITIAL_SIZE: u16 = 1200;
 /// <https://www.rfc-editor.org/rfc/rfc9000.html#name-datagram-size>
