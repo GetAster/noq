@@ -10,11 +10,10 @@ use super::SpaceKind;
 use crate::connection::assembler::Assembler;
 use crate::crypto::{self, HeaderKey, KeyPair, Keys, PacketKey};
 use crate::packet::{Packet, PartialDecode};
-use crate::token::ResetToken;
 use rand::{CryptoRng, RngExt};
 
+use crate::TransportError;
 use crate::{ConnectionId, Instant, IntMap, Side};
-use crate::{RESET_TOKEN_SIZE, TransportError};
 
 use super::PathId;
 use super::paths::PathIdKey;
@@ -179,10 +178,13 @@ impl CryptoState {
     }
 
     /// Removes header protection of a packet, or returns `None` if the packet was dropped.
+    ///
+    /// `stateless_reset` says whether the datagram's tail matched one of the connection's
+    /// stateless reset tokens; such a packet is returned even when it cannot be decoded.
     pub(super) fn unprotect_header(
         &self,
         partial_decode: PartialDecode,
-        stateless_reset_token: Option<ResetToken>,
+        stateless_reset: bool,
     ) -> Option<UnprotectHeaderResult> {
         let encryption_level = partial_decode.encryption_level();
         let header_crypto = match encryption_level {
@@ -197,10 +199,6 @@ impl CryptoState {
             // Unprotected packet
             None => None,
         };
-
-        let packet = partial_decode.data();
-        let stateless_reset = packet.len() >= RESET_TOKEN_SIZE + 5
-            && stateless_reset_token.as_deref() == Some(&packet[packet.len() - RESET_TOKEN_SIZE..]);
 
         match partial_decode.finish(header_crypto) {
             Ok(packet) => Some(UnprotectHeaderResult {

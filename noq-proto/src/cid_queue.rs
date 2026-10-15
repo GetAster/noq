@@ -192,6 +192,15 @@ impl CidQueue {
         self.offset
     }
 
+    /// Return the stateless reset token of the active remote CID, if the peer issued one
+    ///
+    /// This is `None` for a CID learned during the handshake: the client's handshake CID never
+    /// has a reset token, and the server's comes in its transport parameters rather than in a
+    /// NEW_CONNECTION_ID frame.
+    pub(crate) fn active_reset_token(&self) -> Option<ResetToken> {
+        self.buffer[self.cursor].and_then(|CidData(_, token)| token)
+    }
+
     pub(crate) const LEN: usize = 5;
 }
 
