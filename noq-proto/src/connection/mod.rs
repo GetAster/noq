@@ -18,8 +18,8 @@ use tracing::{debug, error, trace, trace_span, warn};
 
 use crate::{
     Dir, Duration, EndpointConfig, FourTuple, Frame, INITIAL_MTU, Instant, MAX_CID_SIZE,
-    MAX_STREAM_COUNT, MIN_INITIAL_SIZE, Side, StreamId, TIMER_GRANULARITY, TokenStore, Transmit,
-    TransportError, TransportErrorCode, VarInt,
+    MAX_STREAM_COUNT, MIN_INITIAL_SIZE, MIN_STATELESS_RESET_SIZE, RESET_TOKEN_SIZE, Side, StreamId,
+    TIMER_GRANULARITY, TokenStore, Transmit, TransportError, TransportErrorCode, VarInt,
     cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
     config::{ServerConfig, TransportConfig},
@@ -997,14 +997,34 @@ impl Connection {
         // If the remote opened this path we may not have CIDs for it. For locally opened
         // paths the caller should have already made sure we have CIDs and refused to open
         // it if there were none.
-        if !self.remote_cids.contains_key(&path_id) {
-            debug!(%path_id, "Remote opened path without issuing CIDs");
-            self.spaces[SpaceId::Data]
-                .pending
-                .path_cids_blocked
-                .insert(path_id, VarInt(0));
-            // Do not abandon this path right away. CIDs might be in-flight still and arrive
-            // soon. It is up to the remote to handle this situation.
+        match self
+            .remote_cids
+            .get(&path_id)
+            .map(CidQueue::active_reset_token)
+        {
+            None => {
+                debug!(%path_id, "Remote opened path without issuing CIDs");
+                self.spaces[SpaceId::Data]
+                    .pending
+                    .path_cids_blocked
+                    .insert(path_id, VarInt(0));
+                // Do not abandon this path right away. CIDs might be in-flight still and
+                // arrive soon. It is up to the remote to handle this situation.
+            }
+            // Let the endpoint route a stateless reset arriving on this path to us, as it does
+            // for path 0 (RFC 9000 §10.3.1). Without this a peer that lost its state could only
+            // reset us on the path the connection started on. A drained connection no longer
+            // sends endpoint events.
+            Some(Some(reset_token)) if !self.state.is_drained() => {
+                self.endpoint_events
+                    .push_back(EndpointEventInner::ResetToken(
+                        path_id,
+                        network_path.remote,
+                        reset_token,
+                    ));
+            }
+            // A handshake CID: its token, if any, came in the transport parameters
+            Some(_) => {}
         }
 
         &mut path.data
@@ -4230,9 +4250,10 @@ impl Connection {
         partial_decode: PartialDecode,
     ) {
         let qlog = QlogRecvPacket::new(partial_decode.len());
+        let stateless_reset = self.is_stateless_reset(network_path.remote, partial_decode.data());
         if let Some(decoded) = self
             .crypto_state
-            .unprotect_header(partial_decode, self.peer_params.stateless_reset_token)
+            .unprotect_header(partial_decode, stateless_reset)
         {
             self.handle_packet(
                 now,
@@ -5164,9 +5185,16 @@ impl Connection {
                         ));
                     }
 
+                    // Whether this frame carries the CID the path already sends to, i.e. the
+                    // first CID issued for a path that was opened before it had any.
+                    let is_active_cid = frame.sequence == remote_cids.active_seq();
+
                     use crate::cid_queue::InsertError;
                     match remote_cids.insert(frame) {
                         Ok(None) => {
+                            if is_active_cid {
+                                self.install_active_reset_token(path_id);
+                            }
                             self.open_nat_traversed_paths(now);
                         }
                         Ok(Some((retired, reset_token))) => {
@@ -5186,7 +5214,16 @@ impl Connection {
                                 ));
                             }
                             pending_retired.extend(retired.map(|seq| (path_id, seq)));
-                            self.set_reset_token(path_id, network_path.remote, reset_token);
+                            // The frame may arrive on any path, so the token is registered
+                            // for the remote of the path it belongs to, not `network_path`.
+                            // A path that is not open yet gets its token in `create_path`.
+                            debug_assert_eq!(
+                                self.remote_cids
+                                    .get(&path_id)
+                                    .and_then(CidQueue::active_reset_token),
+                                Some(reset_token)
+                            );
+                            self.install_active_reset_token(path_id);
                             self.open_nat_traversed_paths(now);
                         }
                         Err(InsertError::ExceedsLimit) => {
@@ -6026,6 +6063,78 @@ impl Connection {
         }
     }
 
+    /// Sends the reset token of `path_id`'s active remote CID to the endpoint
+    ///
+    /// Does nothing for a drained connection, for a path that is not open or is abandoned, or
+    /// whose active CID has no reset token. A path that opens later gets its token from
+    /// `create_path`.
+    fn install_active_reset_token(&mut self, path_id: PathId) {
+        if self.state.is_drained() || self.abandoned_paths.contains(&path_id) {
+            return;
+        }
+        let Some(remote) = self
+            .paths
+            .get(&path_id)
+            .map(|path| path.data.network_path.remote)
+        else {
+            return;
+        };
+        let Some(reset_token) = self
+            .remote_cids
+            .get(&path_id)
+            .and_then(CidQueue::active_reset_token)
+        else {
+            return;
+        };
+        self.set_reset_token(path_id, remote, reset_token);
+    }
+
+    /// Whether `datagram`, received from `remote`, is a stateless reset for this connection
+    ///
+    /// Implements the detection rules of RFC 9000 §10.3.1:
+    /// - only datagrams of at least [`MIN_STATELESS_RESET_SIZE`] bytes qualify;
+    /// - the last 16 bytes are compared with every stateless reset token associated with
+    ///   `remote`: the tokens of the CIDs in use on each open path to that address;
+    /// - tokens of CIDs that are retired, unused, or belong to an abandoned path never match,
+    ///   which is what QUIC multipath requires (draft-ietf-quic-multipath-21 §3.4.2);
+    /// - the comparison takes the same time whichever token, if any, matches.
+    ///
+    /// A match on any path closes the whole connection (draft-ietf-quic-multipath-21 §3.4).
+    fn is_stateless_reset(&self, remote: SocketAddr, datagram: &[u8]) -> bool {
+        if datagram.len() < MIN_STATELESS_RESET_SIZE {
+            return false;
+        }
+        let Ok(candidate) =
+            <[u8; RESET_TOKEN_SIZE]>::try_from(&datagram[datagram.len() - RESET_TOKEN_SIZE..])
+        else {
+            return false;
+        };
+        let candidate = ResetToken::from(candidate);
+        let mut matched = false;
+        for (path_id, path) in &self.paths {
+            if path.data.network_path.remote != remote || self.abandoned_paths.contains(path_id) {
+                continue;
+            }
+            let Some(cids) = self.remote_cids.get(path_id) else {
+                continue;
+            };
+            let token = match cids.active_reset_token() {
+                Some(token) => Some(token),
+                // The server's handshake CID: its token came in the transport parameters
+                None if *path_id == PathId::ZERO && cids.active_seq() == 0 => {
+                    self.peer_params.stateless_reset_token
+                }
+                None => None,
+            };
+            if let Some(token) = token {
+                // `ResetToken`'s `PartialEq` is constant time; `|=` keeps scanning after a
+                // match so the time taken does not reveal which token matched.
+                matched |= token == candidate;
+            }
+        }
+        matched
+    }
+
     /// Issue an initial set of connection IDs to the peer upon connection
     fn issue_first_cids(&mut self, now: Instant) {
         if self
@@ -6790,10 +6899,17 @@ impl Connection {
             .pending_immediate_ack = true;
     }
 
+    /// The CID this connection currently sends to on `path_id`, for tests that forge packets
+    #[cfg(test)]
+    pub(crate) fn active_remote_cid(&self, path_id: PathId) -> Option<ConnectionId> {
+        self.remote_cids.get(&path_id).map(CidQueue::active)
+    }
+
     /// Decodes a packet, returning its decrypted payload, so it can be inspected in tests
     #[cfg(test)]
     pub(crate) fn decode_packet(&self, event: &ConnectionEvent) -> Option<Vec<u8>> {
         let ConnectionEventInner::Datagram(DatagramConnectionEvent {
+            network_path,
             path_id,
             first_decode,
             remaining,
@@ -6807,9 +6923,10 @@ impl Connection {
             panic!("Packets should never be coalesced in tests");
         }
 
+        let stateless_reset = self.is_stateless_reset(network_path.remote, first_decode.data());
         let decrypted_header = self
             .crypto_state
-            .unprotect_header(first_decode.clone(), self.peer_params.stateless_reset_token)?;
+            .unprotect_header(first_decode.clone(), stateless_reset)?;
 
         let mut packet = decrypted_header.packet?;
         self.crypto_state
