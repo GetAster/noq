@@ -6,7 +6,7 @@ This repository is Aster's fork of [n0-computer/noq](https://github.com/n0-compu
 
 - `main` is upstream `main` plus one commit: the Aster README preamble and this ledger. Nothing is built from `main`. It is refreshed with `git merge upstream/main` and is never reset or force-pushed. Ledger edits are commits on `main`, never on `upgrade/*`.
 - `upgrade/<repo>-v<upstream version>` (for example `upgrade/iroh-v1.4.0`, `upgrade/iroh-blobs-v0.103.1`) is the patched integration line: the upstream release plus the patches in this ledger. A new upstream base always gets a new branch, cut from the upstream release tag; Aster-only fixes and re-pins append to the current branch. Per-minor names (`upgrade/iroh-blobs-v0.103`, `upgrade/salvo-v1.0`, …) are historical. Consumers pin commits on it. Published `upgrade/*` branches and tags are never rewritten; a failed attempt is superseded by new commits and a new version.
-- Topic branches carry one change each, are named for the change (for example `feat/read-into`, `security/plumtree-bounds`), are based on the upstream release tag, and are cherry-picked with `git cherry-pick -x` onto the upgrade branch, so every upgrade-branch commit names its source.
+- Topic branches carry one change each, are named for the change (for example `feat/read-into`, `security/plumtree-bounds`), are based on the upstream release tag (or, for a patch that builds on another patch, on that prerequisite's commit, recorded in its row), and are cherry-picked with `git cherry-pick -x` onto the upgrade branch, so every upgrade-branch commit names its source.
 - Version: the upstream version if Aster's registry has never served that version or a higher one in the series; otherwise the next patch above Aster's highest published version. A re-pin without a code change keeps the version and takes the tag suffix `-p<n>`.
 - Tags: `aster-<repo>-v<published version>` (re-pins `aster-<repo>-v<published version>-p<n>`), created only after the Aster consumer trial passes against those exact commits, because tags cannot be moved.
 - The fork manifest is `iroh-fork-manifest.toml` in the Aster repository (the only copy).
@@ -14,18 +14,18 @@ This repository is Aster's fork of [n0-computer/noq](https://github.com/n0-compu
 
 Historical and current tag schemes in this repository:
 
-- `aster-noq-v<version>`, for example `aster-noq-v1.0.0-rc.0`, `aster-noq-v1.0.1`, `aster-noq-v1.3.2`.
+- `aster-noq-v<version>`, for example `aster-noq-v1.0.0-rc.0`, `aster-noq-v1.0.1`, `aster-noq-v1.3.2`, `aster-noq-v1.4.0`.
 - `aster-noq-v<version>-p<n>`, a later commit at the same crate version: `aster-noq-v1.0.0-p1` (the hand-rolled Windows UDP fix, since upstreamed; historical: under the current model a code change takes a new version, and `-p<n>` is for re-pins only).
 
 ## Current release
 
 | Field | Value |
 |---|---|
-| Upstream base | `noq-v1.3.0` (`c1f411562`) |
-| Integration branch | `upgrade/noq-v1.3.0` |
-| Tag | `aster-noq-v1.3.2` |
-| Pinned commit | `e75f3a5550feae0f40df0ffde8bf438f213a5156` |
-| Crate version | 1.3.2 |
+| Upstream base | `noq-v1.4.0` (`34f75c49f`) |
+| Integration branch | `upgrade/noq-v1.4.0` |
+| Tag | `aster-noq-v1.4.0` |
+| Pinned commit | `535bd88409193ae577f445a3207351bb83525f4e` |
+| Crate version | 1.4.0 |
 | Crates | `noq`, `noq-udp`, `noq-proto` (all three published to the Aster registry) |
 | Source repository | `https://forge.emrul.dev/Aster/noq.git` |
 
@@ -43,28 +43,31 @@ Bootstrap pin block for source-tree builds (consumers install a versioned Aster 
 
 ```toml
 [patch.crates-io]
-noq       = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "e75f3a5550feae0f40df0ffde8bf438f213a5156" }
-noq-udp   = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "e75f3a5550feae0f40df0ffde8bf438f213a5156" }
-noq-proto = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "e75f3a5550feae0f40df0ffde8bf438f213a5156" }
+noq       = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "535bd88409193ae577f445a3207351bb83525f4e" }
+noq-udp   = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "535bd88409193ae577f445a3207351bb83525f4e" }
+noq-proto = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "535bd88409193ae577f445a3207351bb83525f4e" }
 ```
 
 The Aster iroh fork pins this commit in its own `[patch.crates-io]` (see the iroh fork's ledger, row 3), and the iroh-blobs, iroh-docs, iroh-gossip and iroh-util forks pin it in theirs.
 
-### `upgrade/noq-v1.3.0` stack
+### `upgrade/noq-v1.4.0` stack
+
+Upstream `noq-v1.4.0` already carries version 1.4.0, which Aster's registry has never served, so there is no release commit.
 
 | Commit | Subject | Source |
 |---:|---|---|
-| `cd67e998d` | feat(proto,noq): add `read_into(&mut [u8])` for zero-copy reads into caller buffers | `-x` of `ceef5cfd3` (row 1) |
-| `6cfa2568a` | feat(noq): add poll-based connection driver for FFI/non-Tokio consumers | `-x` of `ff6e737d8` (row 2) |
-| `b2711a973` | chore: run cargo fmt after 1.0.1 patch port | `-x` of `84a8df77a` (conflict, see History) |
-| `c15dc5544` | fix: address rust 1.96 clippy lints in read_into and poll_driver patches | `-x` of `c84091f4c` |
-| `30c50860c` | fix(noq): split GSO batches and surface peer-opened streams in poll_driver | new (row 2) |
-| `67c136445` | test(noq): cover read_into edge cases and poll_driver loopback | new |
-| `5d67f7195` | fix(noq): read_to_end after end of stream returns empty, not ClosedStream | new (row `eos`, regression in upstream #794) |
-| `867a3a9a3` | chore: release 1.3.1 with the read_to_end end-of-stream fix | new |
-| `f4ae698fc` | test(proto): the test driver can hold several connections per endpoint | new (row 31) |
-| `2c65fd452` | fix(proto): close a connection on a stateless reset from any of its paths | new (row 31; stand-in for upstream #437) |
-| `e75f3a555` | chore: release 1.3.2 with the incoming stateless reset fix | new |
+| `f614cd043` | feat(proto,noq): add `read_into(&mut [u8])` for zero-copy reads into caller buffers | `-x` of `cd67e998d` (row 1; rewritten onto upstream's `VecDeque` assembler) |
+| `d378ece18` | feat(noq): add poll-based connection driver for FFI/non-Tokio consumers | `-x` of `6cfa2568a` (row 2) |
+| `c80473141` | chore: run cargo fmt after 1.0.1 patch port | `-x` of `b2711a973` (row `fmt`; hunks in upstream-only files dropped) |
+| `72c1d777a` | fix: address rust 1.96 clippy lints in read_into and poll_driver patches | `-x` of `c15dc5544` (row `lints`) |
+| `5c77621f1` | fix(noq): split GSO batches and surface peer-opened streams in poll_driver | `-x` of `30c50860c` (row 2) |
+| `5da9ef194` | test(noq): cover read_into edge cases and poll_driver loopback | `-x` of `67c136445` |
+| `7dcc5579c` | fix(noq): read_to_end after end of stream returns empty, not ClosedStream | `-x` of `5d67f7195` (row `eos`) |
+| `4fe94b847` | test(proto): let the test driver hold several connections per endpoint | `-x` of `f4ae698fc` (row 31) |
+| `4be718e40` | fix(proto): close a connection on a stateless reset from any of its paths | `-x` of `2c65fd452` (row 31; merged with upstream's `retire_cids()`) |
+| `dd9c07514` | chore: run cargo fmt over the patch code after the 1.4.0 port | new (row `fmt`; rewraps a row 1 test in `assembler.rs`) |
+| `b392ac5a4` | fix(proto): row 31 on noq 1.4.0: alloc/core imports for no_std noq-proto, drop unused import | new (row 31) |
+| `535bd8840` | fix(proto): read_into with an empty buffer returns Ok(0) and leaves the stream unchanged | `-x` of `e138284e8` (row 1) |
 
 ## Patches
 
@@ -72,18 +75,18 @@ Row numbers are stable patch ids shared across Aster's iroh-family forks (iroh, 
 
 | Id | Topic branch | What | Why / what in Aster depends on it | Commits (topic / upgrade) | Status | Conflict or porting notes |
 |---|---|---|---|---|---|---|
-| 1 | none recorded (original commit `b2982a787`) | Adds `read_into(&mut [u8])` and `poll_read_into` so receive data is copied straight into caller-owned buffers without intermediate `Bytes` handles. Files: `noq-proto/src/connection/assembler.rs`, `noq-proto/src/connection/streams/recv.rs`, `noq/src/recv_stream.rs`. | `aster_transport_core::CoreRecvStream::read_exact_into` uses `noq::RecvStream::read_into` for lower-allocation frame reads; the FFI and the Python/TypeScript native call paths use `read_exact_into`. | `b2982a787` (original) / `cd67e998d` on `upgrade/noq-v1.3.0` (`-x` of `ceef5cfd3`), plus lint fixes `c15dc5544` and tests `67c136445` | carried | High conflict risk in `noq-proto` stream/assembler internals. Preserve ordered-only semantics, cancel safety, EOF as `Ok(None)` at the public async layer, and the tests/proptests that prove byte correctness. Port before row 2. Tests: `read_into_after_cancelled_read_to_end_is_closed` (a dropped `read_to_end` leaves the stream unordered; `read_into` must return `ClosedStream`, not panic) and `read_into_roundtrip_and_eof` (200 KB uni stream byte-exact, EOF as `Ok(None)` repeatedly), in `noq/src/tests.rs`. |
-| 2 | none recorded (original commit `00cd03857`) | Adds `noq::poll_driver`, a synchronous poll-based QUIC driver over `noq-proto` for FFI or foreign runtimes that do not want a Tokio-owned endpoint. Since 1.3.0 it also has `PollEvent::StreamOpened` + `PollDriver::accept_stream`, and sends each GSO segment as its own datagram (`30c50860c`). Files: `noq/src/lib.rs`, `noq/src/poll_driver.rs`. | Intended for the Go/Java/.NET/C ABI bridges. Re-exported as `iroh::poll_driver` (iroh fork row 4) so FFI code depends on one public crate. No Aster Rust code consumes `poll_driver` today; only plans in the Aster repository's `ffi_spec/` reference it. | `00cd03857` (original) / `6cfa2568a` (`-x` of `ff6e737d8`) + fix `30c50860c` on `upgrade/noq-v1.3.0`, plus lint fixes `c15dc5544` and tests `67c136445` | carried | Very high conflict risk on every noq release: it touches the sans-IO endpoint/connection public APIs. Port after row 1; re-check `ConnectionHandle`, `StreamId`, endpoint events, path events and transmit APIs against the new `noq-proto`. `poll_driver_loopback_bi_stream_echo` must pass (two `PollDriver`s on non-blocking std sockets driven synchronously: handshake, open bi, 256 KiB under flow control, server accepts via `StreamOpened`/`accept_stream`, reads to EOF via `stream_recv`, echoes, client reads the echo to EOF; 10/10 consecutive passes when added). `30c50860c` is an additive public-API change on an Aster-only module. |
-| `fmt` | none (bookkeeping) | `cargo fmt` over the patch code. | Upstream tags are not rustfmt-clean under the current toolchain once the patches are applied (`noq-v1.3.0` itself is not rustfmt-clean under rustfmt 1.96 at the line the fixup rewraps). | `84a8df77a` (1.0.1 wave) / `b2711a973` on `upgrade/noq-v1.3.0` | carried | Conflicted on the 1.3.0 port in `noq-proto/src/connection/state.rs` (see History). Re-run rather than cherry-pick if it conflicts. |
-| `lints` | none | Fixes rust 1.96 clippy lints that fire on the row 1 and row 2 code: `manual_let_else`, `needless_range_loop`, `useless_nonzero_new_unchecked`, `collapsible_if`, and `#[allow(clippy::large_enum_variant)]` on `PollEvent`. | Keeps `cargo clippy --workspace --all-targets -- -D warnings` clean. | `c84091f4c` (1.0.1 wave) / `c15dc5544` on `upgrade/noq-v1.3.0` | carried | Cherry-pick rows 1 and 2 from the latest upgrade branch, which already include these fixes. |
-| `eos` | none recorded | `read_to_end` on a stream whose end has already been read returns an empty buffer instead of `Read(ClosedStream)`; a stored reset was masked the same way and is fixed too. Released as noq 1.3.1 (`867a3a9a3`), because 1.3.0 was already published. | Regression in upstream #794: `read_to_end` queried proto's ordered mode before the wrapper's `all_data_read` flag, and proto frees a stream once its FIN is read, so draining an already-finished stream with `read_to_end(0)` errored. iroh-docs' close sequence does exactly that: its `tests/sync.rs` (`sync_simple`, `test_sync_via_relay`, `sync_redrives_known_missing_content_after_resync`) failed every sync's accept-side close. | none / `5d67f7195` + release `867a3a9a3` | carried | Upstream `main` (`5af2505d9`) had no fix when this was written. Drop when an upstream release returns empty from `read_to_end` after end of stream. Test: `read_to_end_after_end_of_stream_is_empty`. Validation: noq lib 37 (3 ignored), clippy `-D warnings`. |
-| 31 | `fix/incoming-reset-tokens` (based on `867a3a9a3`, not on the upstream tag) | A stateless reset was accepted only when it matched path 0's transport-parameter token. A path opened with a fresh CID never had its token installed at the endpoint; the endpoint routed every reset to `PathId::ZERO`, where the connection dropped it as coming from an unexpected remote or a discarded path; and the connection compared only the TP token, not in constant time. Now `create_path` and a first PATH_NEW_CONNECTION_ID for an open path install that path's token, registered for that path's remote; the reset table records the token's path and routes there; and the connection compares the datagram in constant time with the active token of every open, non-abandoned path to that remote (`is_stateless_reset`). Datagrams under 21 bytes are never resets (RFC 9000 §10.3). A match on any path closes the connection; an abandoned path's retired token never matches (draft-ietf-quic-multipath-21 §3.4, §3.4.2). Files: `noq-proto/src/connection/mod.rs`, `noq-proto/src/endpoint.rs`, `noq-proto/src/connection/packet_crypto.rs`, `noq-proto/src/cid_queue.rs`, `noq-proto/src/lib.rs`, `noq-proto/src/tests/{stateless_reset,util,mod}.rs`. | Root cause 2 of the Aster restart/reconnect investigation (Aster repository, `docs/_internal/investigations/2026-10-15-restart-reconnect.md`): once iroh selects a direct path (path ≥ 1), a restarted peer's reset was ignored and the dead connection stayed Active until the 30 s idle timeout. Needed together with iroh fork row 32 (deterministic reset key). | `f4ae698fc` + `2c65fd452` / same commits on `upgrade/noq-v1.3.0` (fast-forward); released as 1.3.2 at `e75f3a555` | carried | **Stand-in for upstream n0-computer/noq#437. Drop when a released noq containing the fix is pinned.** Medium conflict risk in the endpoint reset table and `create_path`/NEW_CONNECTION_ID handling. #296 (closed as misguided) and #275 (CID/token cleanup on discard) are not prerequisites. The test-driver commit gives `TestEndpoint::drive_outgoing` per-connection events and timers (needed for two live connections). Tests: 5 in `tests::stateless_reset` (unknown-CID reset closes only the token holder; wrong token, wrong remote and 20-byte datagram ignored, 21-byte closes; reset on path 1 with path 0 open; reset after path 0 discarded; abandoned-path token ignored). Both multipath cases fail without the change and without each of its three parts. noq-proto 435, noq 37 (3 ignored), clippy `--workspace --all-targets -D warnings` and fmt clean. |
+| 1 | none recorded (original commit `b2982a787`) | Adds `read_into(&mut [u8])` and `poll_read_into` so receive data is copied straight into caller-owned buffers without intermediate `Bytes` handles. Files: `noq-proto/src/connection/assembler.rs`, `noq-proto/src/connection/streams/recv.rs`, `noq/src/recv_stream.rs`. | `aster_transport_core::CoreRecvStream::read_exact_into` uses `noq::RecvStream::read_into` for lower-allocation frame reads; the FFI and the Python/TypeScript native call paths use `read_exact_into`. | `b2982a787` (original) / `f614cd043` on `upgrade/noq-v1.4.0` (`-x` of `cd67e998d`), plus lint fixes `72c1d777a`, tests `5da9ef194` and the empty-buffer fix `e138284e8` on `fix/read-into-empty-buffer` (based on `b392ac5a4`, the upgrade branch it fixes) / `535bd8840` | carried | High conflict risk in `noq-proto` stream/assembler internals. Preserve ordered-only semantics, cancel safety, EOF as `Ok(None)` at the public async layer, and the tests/proptests that prove byte correctness. Port before row 2. On 1.4.0 upstream replaced the assembler's `BinaryHeap` with a sorted `VecDeque` (#823), so `Assembler::read_into` was rewritten onto it; the rewrite was reviewed independently and found sound. `Chunks::read_into` with an empty buffer returns `Ok(0)` before the stream-state checks, as `next(0)` does (before the fix it reported `Blocked` while data was buffered, or finished the stream before the caller had seen its end). Tests: `read_into_after_cancelled_read_to_end_is_closed` (a dropped `read_to_end` leaves the stream unordered; `read_into` must return `ClosedStream`, not panic) and `read_into_roundtrip_and_eof` (200 KB uni stream byte-exact, EOF as `Ok(None)` repeatedly), in `noq/src/tests.rs`, and `read_into_empty_buffer_is_a_no_op` in `noq-proto/src/tests/mod.rs`. |
+| 2 | none recorded (original commit `00cd03857`) | Adds `noq::poll_driver`, a synchronous poll-based QUIC driver over `noq-proto` for FFI or foreign runtimes that do not want a Tokio-owned endpoint. Since 1.3.0 it also has `PollEvent::StreamOpened` + `PollDriver::accept_stream`, and sends each GSO segment as its own datagram (`30c50860c`). Files: `noq/src/lib.rs`, `noq/src/poll_driver.rs`. | Intended for the Go/Java/.NET/C ABI bridges. Re-exported as `iroh::poll_driver` (iroh fork row 4) so FFI code depends on one public crate. No Aster Rust code consumes `poll_driver` today; only plans in the Aster repository's `ffi_spec/` reference it. | `00cd03857` (original) / `d378ece18` (`-x` of `6cfa2568a`) + fix `5c77621f1` (`-x` of `30c50860c`) on `upgrade/noq-v1.4.0`, plus lint fixes `72c1d777a` and tests `5da9ef194` | carried | Very high conflict risk on every noq release: it touches the sans-IO endpoint/connection public APIs. Port after row 1; re-check `ConnectionHandle`, `StreamId`, endpoint events, path events and transmit APIs against the new `noq-proto`. `poll_driver_loopback_bi_stream_echo` must pass (two `PollDriver`s on non-blocking std sockets driven synchronously: handshake, open bi, 256 KiB under flow control, server accepts via `StreamOpened`/`accept_stream`, reads to EOF via `stream_recv`, echoes, client reads the echo to EOF; 10/10 consecutive passes when added). `30c50860c` is an additive public-API change on an Aster-only module. |
+| `fmt` | none (bookkeeping) | `cargo fmt` over the patch code. | Upstream tags are not rustfmt-clean under the current toolchain once the patches are applied (`noq-v1.3.0` itself is not rustfmt-clean under rustfmt 1.96 at the line the fixup rewraps). | `84a8df77a` (1.0.1 wave) / `c80473141` (`-x` of `b2711a973`) + `dd9c07514` on `upgrade/noq-v1.4.0` | carried | Conflicted on the 1.3.0 port in `noq-proto/src/connection/state.rs` (see History). On 1.4.0 its hunks in the upstream-only files `noq-proto/src/connection/state.rs` and `noq-proto/src/packet.rs` were dropped: the fmt commits touch only files the patches change, never upstream-only files. Upstream `noq-v1.4.0` is not rustfmt-clean under our toolchain, so `cargo fmt --all --check` cannot pass; check only the files the patches touch (see Validate). Re-run rather than cherry-pick if it conflicts. |
+| `lints` | none | Fixes rust 1.96 clippy lints that fire on the row 1 and row 2 code: `manual_let_else`, `needless_range_loop`, `useless_nonzero_new_unchecked`, `collapsible_if`, and `#[allow(clippy::large_enum_variant)]` on `PollEvent`. | Keeps `cargo clippy --workspace --all-targets -- -D warnings` clean. | `c84091f4c` (1.0.1 wave) / `72c1d777a` (`-x` of `c15dc5544`) on `upgrade/noq-v1.4.0` | carried | Cherry-pick rows 1 and 2 from the latest upgrade branch, which already include these fixes. |
+| `eos` | none recorded | `read_to_end` on a stream whose end has already been read returns an empty buffer instead of `Read(ClosedStream)`; a stored reset was masked the same way and is fixed too. Released as noq 1.3.1 (`867a3a9a3`), because 1.3.0 was already published. | Regression in upstream #794: `read_to_end` queried proto's ordered mode before the wrapper's `all_data_read` flag, and proto frees a stream once its FIN is read, so draining an already-finished stream with `read_to_end(0)` errored. iroh-docs' close sequence does exactly that: its `tests/sync.rs` (`sync_simple`, `test_sync_via_relay`, `sync_redrives_known_missing_content_after_resync`) failed every sync's accept-side close. | none / `5d67f7195` + release `867a3a9a3` on `upgrade/noq-v1.3.0`; `7dcc5579c` (`-x` of `5d67f7195`) on `upgrade/noq-v1.4.0` | carried | Upstream `main` (`5af2505d9`) had no fix when this was written, nor did `noq-v1.4.0`. Drop when an upstream release returns empty from `read_to_end` after end of stream. Test: `read_to_end_after_end_of_stream_is_empty`. Validation: noq lib 37 (3 ignored), clippy `-D warnings`. |
+| 31 | `fix/incoming-reset-tokens` (based on `867a3a9a3`, not on the upstream tag) | A stateless reset was accepted only when it matched path 0's transport-parameter token. A path opened with a fresh CID never had its token installed at the endpoint; the endpoint routed every reset to `PathId::ZERO`, where the connection dropped it as coming from an unexpected remote or a discarded path; and the connection compared only the TP token, not in constant time. Now `create_path` and a first PATH_NEW_CONNECTION_ID for an open path install that path's token, registered for that path's remote; the reset table records the token's path and routes there; and the connection compares the datagram in constant time with the active token of every open, non-abandoned path to that remote (`is_stateless_reset`). Datagrams under 21 bytes are never resets (RFC 9000 §10.3). A match on any path closes the connection; an abandoned path's retired token never matches (draft-ietf-quic-multipath-21 §3.4, §3.4.2). Files: `noq-proto/src/connection/mod.rs`, `noq-proto/src/endpoint.rs`, `noq-proto/src/connection/packet_crypto.rs`, `noq-proto/src/cid_queue.rs`, `noq-proto/src/lib.rs`, `noq-proto/src/tests/{stateless_reset,util,mod}.rs`. | Root cause 2 of the Aster restart/reconnect investigation (Aster repository, `docs/_internal/investigations/2026-10-15-restart-reconnect.md`): once iroh selects a direct path (path ≥ 1), a restarted peer's reset was ignored and the dead connection stayed Active until the 30 s idle timeout. Needed together with iroh fork row 32 (deterministic reset key). | `f4ae698fc` + `2c65fd452` / same commits on `upgrade/noq-v1.3.0` (fast-forward), released as 1.3.2 at `e75f3a555`; `4fe94b847` + `4be718e40` (`-x`) + no_std import fix `b392ac5a4` on `upgrade/noq-v1.4.0` | carried | **Stand-in for upstream n0-computer/noq#437. Drop when a released noq containing the fix is pinned.** Medium conflict risk in the endpoint reset table and `create_path`/NEW_CONNECTION_ID handling. #296 (closed as misguided) and #275 (CID/token cleanup on discard) are not prerequisites. On 1.4.0 the change was merged with upstream's new `retire_cids()` (#823, CID retirement limits); the merge was reviewed independently and found sound, and `b392ac5a4` adds the `alloc`/`core` imports no_std `noq-proto` needs. The test-driver commit gives `TestEndpoint::drive_outgoing` per-connection events and timers (needed for two live connections). Tests: 5 in `tests::stateless_reset` (unknown-CID reset closes only the token holder; wrong token, wrong remote and 20-byte datagram ignored, 21-byte closes; reset on path 1 with path 0 open; reset after path 0 discarded; abandoned-path token ignored). Both multipath cases fail without the change and without each of its three parts. noq-proto 435, noq 37 (3 ignored), clippy `--workspace --all-targets -D warnings` and fmt clean. |
 
 Bookkeeping and documentation commits (not needed at runtime):
 
 | Commits | Files | Purpose | Status |
 |---|---|---|---|
-| `0f797670a`, `f303f21fd`, `485a71caa`, `617899fe7` | `README.md`, `.gitignore`, transient roadmap files | Added, then moved, internal FFI/perf/security roadmap docs under an ignored `docs/aster/`. Net committed effect: fork README context and `docs/aster/` ignored. | Not on `upgrade/noq-v1.3.0`. Optional; if carried forward, keep only committed fork context and the `.gitignore` entry, and keep internal roadmaps untracked. Superseded by the `main` README preamble under the current model. |
+| `0f797670a`, `f303f21fd`, `485a71caa`, `617899fe7` | `README.md`, `.gitignore`, transient roadmap files | Added, then moved, internal FFI/perf/security roadmap docs under an ignored `docs/aster/`. Net committed effect: fork README context and `docs/aster/` ignored. | Not on `upgrade/noq-v1.3.0` or `upgrade/noq-v1.4.0`. Optional; if carried forward, keep only committed fork context and the `.gitignore` entry, and keep internal roadmaps untracked. Superseded by the `main` README preamble under the current model. |
 
 ### Upstreamed or dropped
 
@@ -124,9 +127,13 @@ git fetch --all --tags --prune
 git push origin <upstream-tag>              # mirror the upstream tag (e.g. noq-v1.4.0) to the forge
 git switch -c upgrade/noq-v<upstream version> <upstream-tag>
 # cherry-pick from the current upgrade branch, which carries the lint and test fixes
-git cherry-pick -x cd67e998d 6cfa2568a b2711a973 c15dc5544 30c50860c 67c136445
-git cherry-pick -x 5d67f7195          # row eos, unless upstream fixed #794
-git cherry-pick -x f4ae698fc 2c65fd452  # row 31, unless upstream fixed #437
+git cherry-pick -x f614cd043 d378ece18 c80473141 72c1d777a 5c77621f1 5da9ef194
+git cherry-pick -x 7dcc5579c          # row eos, unless upstream fixed #794
+git cherry-pick -x 4fe94b847 4be718e40 b392ac5a4  # row 31, unless upstream fixed #437
+git cherry-pick -x 535bd8840          # row 1, empty-buffer fix
+git cherry-pick -x dd9c07514          # fmt; or re-run cargo fmt over the patch files only
+# commits that already carry -x lines naming published commits: replay them as they
+# are; do not add another -x that would name an unpublished trial commit
 # version bump, only if the version rule requires it (Aster's registry has already
 # served <upstream version> or higher in the series): set noq, noq-udp and noq-proto
 # to the next patch above Aster's highest published, then
@@ -137,15 +144,17 @@ git push origin upgrade/noq-v<upstream version>
 
 Prefer `cherry-pick -x` for provenance. If a patch no longer applies, use the "What" and "Conflict or porting notes" columns above as the specification and reimplement. Published `upgrade/*` branches and tags are never rewritten; a failed attempt is superseded by new commits and a new version.
 
-An Aster-only fix on the current base is a topic branch based on the upstream release tag, cherry-picked `-x` onto the current upgrade branch, followed by a version-bump commit to the next patch above Aster's highest published version (the release commits for 1.3.1 and 1.3.2 followed rows `eos` and 31). A re-pin without a code change is a commit on the current upgrade branch with no version bump, tagged `aster-noq-v<current version>-p<n>` after the consumer trial.
+An Aster-only fix on the current base is a topic branch based on the upstream release tag (or on the commit of the patch it builds on, as `fix/read-into-empty-buffer` is based on `b392ac5a4`), cherry-picked `-x` onto the current upgrade branch, followed by a version-bump commit to the next patch above Aster's highest published version (the release commits for 1.3.1 and 1.3.2 followed rows `eos` and 31). A re-pin without a code change is a commit on the current upgrade branch with no version bump, tagged `aster-noq-v<current version>-p<n>` after the consumer trial.
 
 Validate in this repository:
 
 ```bash
-cargo fmt --all --check
+# fmt only the files the patches touch; upstream-only files are left as upstream formatted them.
+# Expect no output (rustfmt follows `mod` declarations, so filter cargo fmt's report instead):
+cargo fmt --all --check 2>/dev/null | grep '^Diff in' |
+  grep -F -f <(git diff --name-only --diff-filter=d <upstream-tag> -- '*.rs')
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test -p noq-proto
-cargo test -p noq --all-features
+cargo test -p noq-proto -p noq -p noq-udp    # the suite Aster's fork_compat gate runs (with --locked)
 ```
 
 Then, in the iroh fork, re-pin noq (iroh row 3), run iroh's suite, and re-pin the satellites. Whenever noq moves, re-pin the iroh-docs fork's own `[patch.crates-io]` to the same revisions and run its full suite (`cargo test --all-features`, 118 tests including `tests/sync.rs`): iroh-docs exercises the whole stack together, and it is what caught row `eos`.
@@ -181,7 +190,25 @@ Before the current branch model, fork `main` mirrored upstream `main` and was re
 
 ## History
 
-### 1.3.0 wave (2026-10-03 onward), current
+### 1.4.0 wave (2026-10-21), current
+
+| Upstream base | Tag | Pinned commit | Branch |
+|---|---|---|---|
+| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.0` | `535bd88409193ae577f445a3207351bb83525f4e` | `upgrade/noq-v1.4.0` |
+
+- Upstream released `noq-v1.4.0` (2026-10-20), required by iroh 1.4.0. The fork was re-ported onto it as `upgrade/noq-v1.4.0`; every carried row still applies (upstream fixed neither #794 nor #437). Published as 1.4.0, the upstream version, since Aster's registry has never served it; no release commit.
+- **Row 1** was rewritten onto upstream's `VecDeque` assembler (#823) and **row 31** merged with upstream's new `retire_cids()`; both were reviewed independently and found sound. `b392ac5a4` fixes row 31's imports for no_std `noq-proto`.
+- **New: empty-buffer `read_into`** (row 1, `fix/read-into-empty-buffer` @ `e138284e8`, based on `b392ac5a4` because it fixes the ported row 1): `Chunks::read_into` returns `Ok(0)` for an empty buffer and leaves the stream unchanged. Test `read_into_empty_buffer_is_a_no_op`.
+- **fmt:** the fmt commits (`c80473141`, `dd9c07514`) are limited to files the patches change. Upstream `noq-v1.4.0` is not rustfmt-clean under our toolchain, so `cargo fmt --all --check` fails on upstream-only files; the fmt check is scoped to the patch files.
+- Validation (macOS, 2026-10-21): clippy clean; noq lib 39 passed (3 ignored), noq-proto 456, noq-udp 9 (1 ignored), integration 1 + 1 (1 ignored), doctests 3. Aster consumer: `cargo check --workspace --all-targets` and preflight green; the full suites run in the release candidate.
+
+### 1.3.0 wave (2026-10-03 onward)
+
+| Upstream base | Tag | Pinned commit | Branch |
+|---|---|---|---|
+| `noq-v1.3.0` (`c1f411562`) | `aster-noq-v1.3.2` | `e75f3a5550feae0f40df0ffde8bf438f213a5156` | `upgrade/noq-v1.3.0` |
+
+- Stack on `upgrade/noq-v1.3.0`: `cd67e998d` (row 1), `6cfa2568a` (row 2), `b2711a973` (fmt), `c15dc5544` (lints), `30c50860c` (row 2), `67c136445` (tests), `5d67f7195` (row `eos`), `867a3a9a3` (release 1.3.1), `f4ae698fc` + `2c65fd452` (row 31), `e75f3a555` (release 1.3.2).
 
 - Upstream released `noq-v1.3.0`. The fork was re-ported onto it as `upgrade/noq-v1.3.0` (base `c1f411562`), validated, tagged `aster-noq-v1.3.0` and pushed to Forgejo. Fork `main` was fast-forwarded to upstream `main` (`5af2505d9`, no force) and the upstream `noq-v1.3.0` tag was mirrored to Forgejo.
 - **Conflict:** the fmt fixup (`84a8df77a`) conflicted in `noq-proto/src/connection/state.rs` because upstream added `use crate::shared::EndpointEventInner;` beside the import the fixup rewraps. Resolved in the cherry-pick itself (no fixup commit): keep the new upstream import and the rustfmt-wrapped `use crate::{ApplicationClose, …};` block. The other three noq patches applied clean.
