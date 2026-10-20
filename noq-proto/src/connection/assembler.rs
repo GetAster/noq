@@ -1033,8 +1033,10 @@ mod test {
         let data: &[&[u8]] = &[b"hello", b" ", b"world"];
         let mut offset = 0u64;
         for chunk in data {
-            a.insert(offset, Bytes::from_static(chunk), chunk.len()).unwrap();
-            b.insert(offset, Bytes::from_static(chunk), chunk.len()).unwrap();
+            a.insert(offset, Bytes::from_static(chunk), chunk.len())
+                .unwrap();
+            b.insert(offset, Bytes::from_static(chunk), chunk.len())
+                .unwrap();
             offset += chunk.len() as u64;
         }
 
