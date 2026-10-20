@@ -89,9 +89,9 @@ Bookkeeping and documentation commits (not needed at runtime):
 |---|---|---|---|---|
 | Windows UDP busy-loop root cause: `UdpSocketState::new` disables `SIO_UDP_CONNRESET` (`WSAIoctl(…, FALSE)`) so a Windows UDP socket stops failing `recv` with `WSAECONNRESET` (os error 10054) after an ICMP "port unreachable". This caused the Aster/iroh endpoint busy-loop (~120% CPU plus a log flood of `recv error … os error 10054`) when a peer or candidate became unreachable mid-session. | `fix/windows-busy-loop` (based on `noq-v1.0.0`) | `2678dcd69` / `d8daa2b18` (on the 1.0.0 upgrade branch; released as the hand-rolled `-p1`) | upstreamed | Absorbed in `noq-v1.0.1` (2026-07-02) by upstream PR n0-computer/noq#707, filed from Aster's issue #737. Upstream disables both `SIO_UDP_CONNRESET` and `SIO_UDP_NETRESET`, a superset of the Aster patch, so the patch was dropped from the stack in the 1.0.1 wave. |
 
-### Branches not yet triaged
+### Closed security-review branches
 
-These topic branches exist in this repository (April 2026, from an earlier security review) but are not on the current upgrade branch and have no row above. Whether each is still needed, was fixed upstream, or should be dropped has not been decided yet.
+These topic branches came from an April 2026 security review. The fixes from that review that held up were merged upstream, so these branches are not carried on the upgrade branch. They are kept for reference.
 
 | Branch |
 |---|
