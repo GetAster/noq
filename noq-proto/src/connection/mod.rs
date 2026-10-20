@@ -27,7 +27,6 @@ use crate::{
     Dir, Duration, EndpointConfig, FourTuple, Frame, FxHashMap, INITIAL_MTU, Instant, MAX_CID_SIZE,
     MAX_STREAM_COUNT, MIN_INITIAL_SIZE, MIN_STATELESS_RESET_SIZE, RESET_TOKEN_SIZE, Side, StreamId,
     TIMER_GRANULARITY, TokenStore, Transmit, TransportError, TransportErrorCode, VarInt,
-    cid_generator::ConnectionIdGenerator,
     cid_queue::CidQueue,
     config::{ServerConfig, TransportConfig},
     congestion::Controller,

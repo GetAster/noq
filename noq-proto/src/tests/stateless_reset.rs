@@ -4,7 +4,8 @@
 //! the token it issued for the CID we sent to. The reset carries no CID we issued, so the
 //! endpoint has to find the connection by that token, on whichever path the token belongs to.
 
-use std::{net::SocketAddr, sync::Arc};
+use alloc::{boxed::Box, sync::Arc, vec};
+use core::net::SocketAddr;
 
 use assert_matches::assert_matches;
 #[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
