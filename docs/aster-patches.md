@@ -4,16 +4,18 @@ This repository is Aster's fork of [n0-computer/noq](https://github.com/n0-compu
 
 ## Branch and tag model
 
-- `main` is the front door: upstream's README with an Aster preamble, plus this ledger. Nothing is built from `main`.
-- `upgrade/<version>` is the patched integration line for one upstream release wave: the upstream release plus the patches in this ledger. Consumers pin it by commit.
-- Topic branches carry one change each and are named for what the change is, for example `feat/read-into` or `security/plumtree-bounds`. Each is based on the upstream release tag and is cherry-picked with `git cherry-pick -x` onto the upgrade branch, so every upgrade-branch commit names its source.
-- Release tags mark the commits that are released and pinned. Published tags are never moved or rewritten. Historical tags in this repository use several schemes (listed below); new tags use `aster-<repo>-v<version>`, where `<version>` is the published version of the repository's main package (for example `aster-salvo-v1.0.4`, `aster-fory-v1.7.6-aster.1`).
-- `main` is refreshed by merging upstream `main` into it. It is not force-pushed.
+- `main` is upstream `main` plus one commit: the Aster README preamble and this ledger. Nothing is built from `main`. It is refreshed with `git merge upstream/main` and is never reset or force-pushed. Ledger edits are commits on `main`, never on `upgrade/*`.
+- `upgrade/<repo>-v<upstream version>` (for example `upgrade/iroh-v1.4.0`, `upgrade/iroh-blobs-v0.103.1`) is the patched integration line: the upstream release plus the patches in this ledger. A new upstream base always gets a new branch, cut from the upstream release tag; Aster-only fixes and re-pins append to the current branch. Per-minor names (`upgrade/iroh-blobs-v0.103`, `upgrade/salvo-v1.0`, …) are historical. Consumers pin commits on it. Published `upgrade/*` branches and tags are never rewritten; a failed attempt is superseded by new commits and a new version.
+- Topic branches carry one change each, are named for the change (for example `feat/read-into`, `security/plumtree-bounds`), are based on the upstream release tag, and are cherry-picked with `git cherry-pick -x` onto the upgrade branch, so every upgrade-branch commit names its source.
+- Version: the upstream version if Aster's registry has never served that version or a higher one in the series; otherwise the next patch above Aster's highest published version. A re-pin without a code change keeps the version and takes the tag suffix `-p<n>`.
+- Tags: `aster-<repo>-v<published version>` (re-pins `aster-<repo>-v<published version>-p<n>`), created only after the Aster consumer trial passes against those exact commits, because tags cannot be moved.
+- The fork manifest is `iroh-fork-manifest.toml` in the Aster repository (the only copy).
+- Aster does not submit patches upstream; upstream maintainers are welcome to take any patch here.
 
-Tag schemes used in this repository:
+Historical and current tag schemes in this repository:
 
 - `aster-noq-v<version>`, for example `aster-noq-v1.0.0-rc.0`, `aster-noq-v1.0.1`, `aster-noq-v1.3.2`.
-- `aster-noq-v<version>-p<n>`, a later commit at the same crate version: `aster-noq-v1.0.0-p1` (the hand-rolled Windows UDP fix, since upstreamed).
+- `aster-noq-v<version>-p<n>`, a later commit at the same crate version: `aster-noq-v1.0.0-p1` (the hand-rolled Windows UDP fix, since upstreamed; historical: under the current model a code change takes a new version, and `-p<n>` is for re-pins only).
 
 ## Current release
 
@@ -107,7 +109,7 @@ noq is ported first: the iroh fork's `[patch.crates-io]` (iroh row 3) and the `p
 3. Port iroh-blobs, iroh-docs and iroh-gossip (and iroh-util), including their dependency patch blocks. Because those blocks reference other forks by revision, re-pin in dependency order: noq → iroh → iroh-blobs → iroh-docs / iroh-gossip.
 4. Reapply optional docs/`.gitignore` patches where useful.
 5. Update the root `[patch.crates-io]` revs in the Aster repository to the new fork commits.
-6. Regenerate the fork manifest (canonical copy `docs/aster-fork-manifest.toml` in the Aster iroh fork; synced copy `iroh-fork-manifest.toml` in the Aster repository) and this ledger's Current release section.
+6. Update `iroh-fork-manifest.toml` in the Aster repository (the only copy), and this ledger's Current release section on `main` (merge upstream `main` first).
 
 Before touching branches:
 
@@ -119,17 +121,23 @@ Port:
 
 ```bash
 git fetch --all --tags --prune
-git push origin <new-upstream-tag>          # mirror the upstream tag to the forge
-git switch -c upgrade/noq-<new-version> <new-upstream-tag>
+git push origin <upstream-tag>              # mirror the upstream tag (e.g. noq-v1.4.0) to the forge
+git switch -c upgrade/noq-v<upstream version> <upstream-tag>
 # cherry-pick from the current upgrade branch, which carries the lint and test fixes
 git cherry-pick -x cd67e998d 6cfa2568a b2711a973 c15dc5544 30c50860c 67c136445
 git cherry-pick -x 5d67f7195          # row eos, unless upstream fixed #794
 git cherry-pick -x f4ae698fc 2c65fd452  # row 31, unless upstream fixed #437
-git tag -a aster-noq-v<published version> -m "Aster noq v<published version>"
-git push origin upgrade/noq-<new-version> aster-noq-v<published version>
+# version bump, only if the version rule requires it (Aster's registry has already
+# served <upstream version> or higher in the series): set noq, noq-udp and noq-proto
+# to the next patch above Aster's highest published, then
+git commit -am "chore: release <published version>"
+git push origin upgrade/noq-v<upstream version>
+# do not tag yet: tag after the consumer trial (below)
 ```
 
-Prefer `cherry-pick -x` for provenance. If a patch no longer applies, use the "What" and "Conflict or porting notes" columns above as the specification and reimplement. Do not rewrite a published `upgrade/*` branch or tag unless you are deliberately replacing a failed upgrade attempt.
+Prefer `cherry-pick -x` for provenance. If a patch no longer applies, use the "What" and "Conflict or porting notes" columns above as the specification and reimplement. Published `upgrade/*` branches and tags are never rewritten; a failed attempt is superseded by new commits and a new version.
+
+An Aster-only fix on the current base is a topic branch based on the upstream release tag, cherry-picked `-x` onto the current upgrade branch, followed by a version-bump commit to the next patch above Aster's highest published version (the release commits for 1.3.1 and 1.3.2 followed rows `eos` and 31). A re-pin without a code change is a commit on the current upgrade branch with no version bump, tagged `aster-noq-v<current version>-p<n>` after the consumer trial.
 
 Validate in this repository:
 
@@ -157,9 +165,19 @@ uv run pytest tests/python/ -v --timeout=30
 
 At minimum verify the frame-read paths that use `CoreRecvStream::read_exact_into` and the FFI/PyO3 fast paths: they are the main consumers of row 1.
 
+Tag only after the Aster consumer trial passes against these exact commits (tags cannot be moved), then record the release:
+
+```bash
+git tag -a aster-noq-v<published version> -m "Aster noq v<published version>" <release commit>
+git push origin aster-noq-v<published version>
+# re-pin only: git tag -a aster-noq-v<current version>-p<n> -m "..." <re-pin commit>
+```
+
+Update `iroh-fork-manifest.toml` in the Aster repository (the only copy), and this ledger's Current release section on `main` (merge upstream `main` first).
+
 Local checkouts: downstream workspaces that use `[patch.crates-io]` path overrides into a local checkout of this fork (for example portal-sync) build whatever is checked out, not the pinned rev. After publishing, switch the local checkout to the released tag (`git switch --detach aster-noq-v<version>`), check `git status --short --branch` and `git tag --points-at HEAD`, and run at least one path-override consumer check (for example `cargo check --locked -p portal-cas` in portal-sync).
 
-Before the current branch model, fork `main` mirrored upstream `main` and was reset to it on each port (`git reset --hard upstream/main`, `git push origin main --force-with-lease`, the only place a forced push was allowed). Under the current model `main` is the front door and is not reset.
+Before the current branch model, fork `main` mirrored upstream `main` and was reset to it on each port (`git reset --hard upstream/main`, `git push origin main --force-with-lease`, the only place a forced push was allowed). Under the current model `main` is upstream `main` plus one commit (README preamble and this ledger), refreshed with `git merge upstream/main`, and is never reset or force-pushed.
 
 ## History
 
