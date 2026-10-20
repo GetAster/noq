@@ -383,6 +383,13 @@ impl<'a> Chunks<'a> {
             ChunksState::Finalized => panic!("must not call read_into() after finalize()"),
         };
 
+        // An empty buffer reads nothing and leaves the stream as it is, like `next(0)`. Without
+        // this, a zero-byte copy would fall through to the state checks below and report
+        // `Blocked`, or finish the stream, while data is still buffered.
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
         let n = rs.assembler.read_into(buf, self.ordered);
         self.read += n as u64;
 
