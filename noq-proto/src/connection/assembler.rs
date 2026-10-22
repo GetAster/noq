@@ -123,7 +123,12 @@ impl Assembler {
         let mut buffers = mem::take(&mut self.data);
         self.buffered = 0;
         let mut fragmented_buffered = 0;
-        let mut offset = self.bytes_read;
+        // Unordered reads consume arbitrary offsets; bytes_read is only a byte count there.
+        let mut offset = if self.state.is_ordered() {
+            self.bytes_read
+        } else {
+            0
+        };
         for chunk in &mut buffers {
             chunk.try_mark_defragment(offset);
             let size = chunk.bytes.len();
@@ -943,6 +948,33 @@ mod test {
             assert_eq!(x.buffered, 0);
             assert_eq!(x.allocated, 0);
         }
+    }
+
+    #[test]
+    fn unordered_chunk_pressure_preserves_offsets_below_bytes_read() {
+        const PACKET: usize = 1200;
+        const PACKETS: usize = COMPACT_THRESHOLD + 2;
+        let stream: Vec<u8> = (0..PACKETS * PACKET).map(|i| (i % 251) as u8).collect();
+        let mut x = Assembler::new();
+        x.ensure_ordering(false).unwrap();
+        let high = (PACKETS - 1) * PACKET;
+        x.insert(high as u64, Bytes::copy_from_slice(&stream[high..]), PACKET)
+            .unwrap();
+        let mut delivered = vec![false; stream.len()];
+        drain(&mut x, PACKET, false, &stream, &mut delivered);
+        assert_eq!(x.bytes_read(), PACKET as u64);
+        // Unordered bytes_read counts delivered bytes, not a consumed stream prefix.
+        for offset in (0..high).step_by(PACKET) {
+            x.insert(
+                offset as u64,
+                Bytes::copy_from_slice(&stream[offset..offset + PACKET]),
+                PACKET,
+            )
+            .unwrap();
+        }
+        drain(&mut x, 793, false, &stream, &mut delivered);
+        assert!(delivered.iter().all(|&received| received));
+        assert_eq!(x.bytes_read(), stream.len() as u64);
     }
 
     #[test]
