@@ -516,8 +516,8 @@ pub struct Bbr3 {
     /// equivalent to BBR.bw_probe_up_acks: volume of data in bytes that has been acknowledged
     /// during probe up state
     bw_probe_up_acks: u64,
-    /// equivalent to BBR.probe_up_cnt: count of the number of times we've grown the cwnd during
-    /// probe up state
+    /// equivalent to BBR.probe_up_acked_per_inc: bytes that must be ACKed to
+    /// raise inflight_longterm by one SMSS during probe up.
     probe_up_cnt: u64,
     /// equivalent to BBR.cycle_stamp: timestamp when we start probing down state
     cycle_stamp: Option<Instant>,
@@ -1105,7 +1105,7 @@ impl Bbr3 {
         false
     }
 
-    /// equivalent to BBRProbeInflightLongtermUpward <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-5.3.3.6-8>
+    /// equivalent to BBRProbeInflightLongtermUpward <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-06.html#section-5.3.3.6>
     fn probe_inflight_long_term_upward(&mut self) {
         if !self.is_cwnd_limited || self.cwnd < self.inflight_longterm {
             return;
@@ -1116,7 +1116,9 @@ impl Bbr3 {
         if self.bw_probe_up_acks >= self.probe_up_cnt && self.probe_up_cnt > 0 {
             let delta = self.bw_probe_up_acks / self.probe_up_cnt;
             self.bw_probe_up_acks -= delta * self.probe_up_cnt;
-            self.inflight_longterm += delta;
+            // Unlike TCP's packet counters, this implementation's counters
+            // are bytes: each earned increment still adds a whole packet.
+            self.inflight_longterm += delta * self.smss;
         }
         if self.round_start {
             self.raise_inflight_long_term_slope();
@@ -1258,15 +1260,15 @@ impl Bbr3 {
         self.full_bw_now = false;
     }
 
-    /// equivalent to BBRRaiseInflightLongtermSlope <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-5.3.3.6-8>
+    /// equivalent to BBRRaiseInflightLongtermSlope <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-06.html#section-5.3.3.6>
     fn raise_inflight_long_term_slope(&mut self) {
-        let growth_this_round = self
-            .smss
-            .checked_shl(self.bw_probe_up_rounds)
-            .unwrap_or(u64::MAX);
+        let growth_this_round = 1u64 << self.bw_probe_up_rounds;
         self.bw_probe_up_rounds =
             Ord::min(self.bw_probe_up_rounds + 1, MAX_LONG_TERM_PROBE_UP_ROUNDS);
-        self.probe_up_cnt = Ord::max(self.cwnd / growth_this_round, 1);
+        // Keep the ACK budget in bytes. Moving SMSS into growth_this_round
+        // and adding byte-sized increments is not equivalent with integer
+        // division or the per-ACK cwnd/inflight_longterm gate.
+        self.probe_up_cnt = Ord::max(self.cwnd / growth_this_round, self.smss);
     }
 
     /// equivalent to BBRHandleRestartFromIdle <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-5.4.1>
@@ -2134,6 +2136,31 @@ mod test {
             bbr.cycle_count, cycle,
             "ProbeRTT must not advance the bandwidth filter"
         );
+    }
+
+    #[test]
+    fn probe_up_cap_grows_in_packet_steps_and_preserves_acked_remainder() {
+        let mut bbr = stopping_probe(false);
+        bbr.state = BbrState::ProbeBw(ProbeBwSubstate::Up);
+        bbr.is_cwnd_limited = true;
+        bbr.round_start = false;
+        bbr.cwnd = 12_500;
+        bbr.inflight_longterm = bbr.cwnd;
+        bbr.bw_probe_up_rounds = 0;
+        bbr.bw_probe_up_acks = 0;
+        bbr.raise_inflight_long_term_slope();
+
+        // At the first slope, ACKing a window earns one additional packet.
+        // A non-packet-aligned window also exercises integer rounding.
+        for _ in 0..10 {
+            bbr.rs.as_mut().unwrap().newly_acked = 1200;
+            bbr.probe_inflight_long_term_upward();
+            assert_eq!(bbr.inflight_longterm, 12_500);
+        }
+        bbr.rs.as_mut().unwrap().newly_acked = 1200;
+        bbr.probe_inflight_long_term_upward();
+        assert_eq!(bbr.inflight_longterm, 13_700);
+        assert_eq!(bbr.bw_probe_up_acks, 700);
     }
 
     /// PROBE_UP undo snapshot taken before a (possibly spurious) loss:
