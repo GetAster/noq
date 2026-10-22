@@ -15,9 +15,12 @@ use tracing::error;
 
 use crate::{
     ClientConfig, Connection, ConnectionClose, ConnectionError, Event, PathStatus, Side,
-    TransportConfig, TransportErrorCode,
+    TransportErrorCode,
     tests::random_interaction::{TestOp, run_random_interaction},
-    tests::util::{ManyToManyRouting, Pair, Routing, client_config, server_config, subscribe},
+    tests::util::{
+        ManyToManyRouting, Pair, Routing, client_config, cubic_transport_config, server_config,
+        subscribe,
+    },
 };
 
 // These TransportConfig constants are designed to match iroh for now.
@@ -123,7 +126,7 @@ impl PairSetup {
 
         // Initialize the transport config
 
-        let mut transport = TransportConfig::default();
+        let mut transport = cubic_transport_config();
         // Set the qlog prefix, if the feature is enabled
         #[cfg(feature = "qlog")]
         transport.qlog_from_env(prefix);
