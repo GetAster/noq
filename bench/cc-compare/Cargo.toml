@@ -1,0 +1,24 @@
+[package]
+name = "noq-cc-compare"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+default = ["candidate"]
+candidate = ["dep:noq"]
+baseline = ["dep:noq-baseline"]
+
+[dependencies]
+anyhow = "1"
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+noq = { path = "../../noq", optional = true, default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+noq-baseline = { package = "noq", git = "https://forge.emrul.dev/Aster/noq.git", rev = "535bd88409193ae577f445a3207351bb83525f4e", optional = true, default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+rcgen = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "test-util"] }
