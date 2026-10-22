@@ -12,7 +12,7 @@ use noq_baseline as noq;
 #[cfg(feature = "baseline")]
 const BUILD_VARIANT: &str = "baseline";
 #[cfg(feature = "candidate")]
-const BUILD_VARIANT: &str = "probe-reset-and-packet-growth";
+const BUILD_VARIANT: &str = "probe-reset-packet-growth-and-stream-coalescing";
 
 use std::{
     io::{self, IoSliceMut, Write},

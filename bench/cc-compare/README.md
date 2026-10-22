@@ -1,13 +1,16 @@
 # CUBIC / BBRv3 comparison
 
-This branch evaluates Aster's Noq with both the probe-feedback reset and
-packet-growth corrections. The unchanged bandwidth-recovery regression now
-passes, along with all 460 protocol tests. Production defaults remain CUBIC.
+This branch evaluates Aster's Noq with the probe-feedback reset, packet-growth
+and stream-compaction corrections. The combined protocol suite passes 464
+tests. Production defaults remain CUBIC.
 
 See the [qualification report](results/qualification-report.md),
 [comparison tables](results/qualification-tables.md),
 [reference review](results/reference-review.md), and
 [recovery diagnosis](results/recovery-investigation.md).
+The [stream-buffer follow-up](results/stream-fix/report.md) and
+[Aster adoption handoff](results/adoption-handoff.md) cover the receive fix,
+clean topic branches and ledger work.
 
 This standalone harness compares Aster's pinned Noq 1.4.0
 (`535bd88409193ae577f445a3207351bb83525f4e`) with the same implementation

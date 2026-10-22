@@ -1,0 +1,6 @@
+high-bdp-0-cubic: 93.80 Mbps p95=154.8ms failed=0
+high-bdp-0-bbr3: 92.71 Mbps p95=144.4ms failed=0
+high-bdp-1-bbr3: 92.52 Mbps p95=143.9ms failed=0
+high-bdp-1-cubic: 93.79 Mbps p95=181.2ms failed=0
+high-bdp-2-cubic: 93.80 Mbps p95=155.1ms failed=0
+high-bdp-2-bbr3: 92.76 Mbps p95=149.9ms failed=0

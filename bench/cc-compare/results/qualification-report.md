@@ -9,6 +9,7 @@ Aster's default settings; enlarged receive windows exposed a separate
 stream-buffer failure affecting both controllers.
 
 Measurements were taken on 22 October 2026. Production defaults remain unchanged.
+The results below predate the [stream-buffer fixes and replay](stream-fix/report.md).
 
 ## Patches
 
@@ -103,6 +104,8 @@ All six LAN and six reverse-WAN repeats passed with Noq's default flow control
 (1,250,000-byte stream receive window). Aster retains that default unless
 overridden. Enlarged-window transfers need a separate assembler fix.
 Failed connections are counted above and excluded from goodput medians.
+The subsequent [compaction fixes](stream-fix/report.md) address the buffer limit
+and preserve unordered reads; the original measurements are retained here.
 
 See the [full tables](qualification-tables.md), [per-cell CSV](native-summary.csv),
 [raw Linux results](linux/) and [reproduction instructions](../README.md).

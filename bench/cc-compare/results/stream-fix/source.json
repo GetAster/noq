@@ -1,0 +1,7 @@
+{
+  "ordered_replay_integration_commit": "039a8ab1f",
+  "final_integration_commit": "e571e6adf",
+  "coalescing_source": "69a1df075d7c13265ae25cf809523b674db9a36d",
+  "unordered_source": "3ae189bba41024a6daf29a353460f373860c0e26",
+  "assembler_sha256": "db7eb7cca467bf8e97e540e704501aae3109deb794485ce581f6ea9b426d1747"
+}

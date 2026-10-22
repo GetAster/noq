@@ -1,0 +1,7 @@
+{
+  "owned_processes": [],
+  "owned_namespaces": [],
+  "test_udp_listeners": [],
+  "temporary_firewall_rules": [],
+  "scratch_directory_removed": true
+}

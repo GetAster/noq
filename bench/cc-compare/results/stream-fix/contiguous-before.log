@@ -1,0 +1,22 @@
+   Compiling noq-proto v1.4.0 (/Users/emrul/dev/aster/noq-worktrees/stream-buffer-fix/noq-proto)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.82s
+     Running unittests src/lib.rs (/Users/emrul/dev/aster/noq/target/debug/deps/noq_proto-5e68d5e6c6d13a3a)
+
+running 1 test
+test connection::assembler::test::contiguous_packets_behind_one_gap_survive_chunk_pressure ... FAILED
+
+failures:
+
+---- connection::assembler::test::contiguous_packets_behind_one_gap_survive_chunk_pressure stdout ----
+
+thread 'connection::assembler::test::contiguous_packets_behind_one_gap_survive_chunk_pressure' (1097794653) panicked at noq-proto/src/connection/assembler.rs:834:14:
+one gap must not exhaust the span limit: TooManyChunks
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    connection::assembler::test::contiguous_packets_behind_one_gap_survive_chunk_pressure
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 457 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p noq-proto --lib`

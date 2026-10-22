@@ -1,0 +1,15 @@
+phase,scenario,controller,trials,median_mbps,median_p95_ms,successful_probes,failed_probes
+final-paths,ovh-to-hetzner,bbr3,1,913.9783024,27.900505,200,0
+final-paths,ovh-to-hetzner,cubic,1,696.7417824,27.943116,200,0
+high-bdp,high-bdp,bbr3,3,92.71463066666666,144.39275600000002,720,0
+high-bdp,high-bdp,cubic,3,93.79522666666666,155.142104,720,0
+paths,hetzner-to-ovh,bbr3,3,908.97614,24.80743,600,0
+paths,hetzner-to-ovh,cubic,3,929.502468,25.230346,600,0
+paths,hetzner-to-ovh-no-gso,bbr3,3,905.4219512,24.528101,600,0
+paths,hetzner-to-ovh-no-gso,cubic,3,929.5293224,24.997085,600,0
+paths,ovh-to-hetzner,bbr3,3,908.32846,28.028383,600,0
+paths,ovh-to-hetzner,cubic,3,906.9184648,25.320783,600,0
+paths,ovh-to-lan,bbr3,3,142.2443528,69.822705,600,0
+paths,ovh-to-lan,cubic,3,149.258276,424.758369,600,0
+paths,physical-lan,bbr3,3,77.8836248,50.19325,600,0
+paths,physical-lan,cubic,3,85.3724776,706.556083,600,0

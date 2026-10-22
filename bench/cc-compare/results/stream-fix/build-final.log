@@ -1,0 +1,4 @@
+   Compiling noq-proto v1.4.0 (/tmp/noq-bbr-eval-20261022/source/noq-proto)
+   Compiling noq v1.4.0 (/tmp/noq-bbr-eval-20261022/source/noq)
+   Compiling noq-cc-compare v0.1.0 (/tmp/noq-bbr-eval-20261022/source/bench/cc-compare)
+    Finished `release` profile [optimized] target(s) in 9.93s

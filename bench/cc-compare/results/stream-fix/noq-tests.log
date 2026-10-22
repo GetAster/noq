@@ -1,0 +1,51 @@
+   Compiling noq-udp v1.4.0 (/Users/emrul/dev/aster/noq-worktrees/bbr-recovery/noq-udp)
+   Compiling noq v1.4.0 (/Users/emrul/dev/aster/noq-worktrees/bbr-recovery/noq)
+   Compiling noq-proto v1.4.0 (/Users/emrul/dev/aster/noq-worktrees/bbr-recovery/noq-proto)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.76s
+     Running unittests src/lib.rs (/Users/emrul/dev/aster/noq/target/debug/deps/noq-1b65973c36deb958)
+
+running 42 tests
+test runtime::tests::non_would_block_send_errors_are_logged_and_ignored ... ok
+test tests::dropped_endpoint_cleans_up ... ok
+test tests::local_addr ... ok
+test tests::endpoint_shutdown_wakes_waiters ... ok
+test tests::close_endpoint ... ok
+test tests::export_keying_material ... ok
+test tests::dropped_connection_cleans_up ... ok
+test tests::echo_v6 ... ok
+test tests::echo_dualstack ... ok
+test tests::on_closed ... ok
+test tests::multiple_conns_with_zero_length_cids ... ok
+test tests::echo_v4 ... ok
+test tests::on_closed_endpoint_drop ... ok
+test tests::read_into_after_cancelled_read_to_end_is_closed ... ok
+test tests::read_to_end_after_end_of_stream_is_empty ... ok
+test tests::recv_stream_cancel_read_to_end_then_ordered_read_is_closed ... ok
+test tests::regression_incoming_accept_after_endpoint_close_panic ... ok
+test tests::rebind_recv ... ok
+test tests::recv_stream_cancel_stop_drop ... ok
+test tests::stress_both_windows ... ignored
+test tests::stress_receive_window ... ignored
+test tests::stress_stream_receive_window ... ignored
+test tests::test_multipath_negotiated ... ok
+test tests::stream_stopped ... ok
+test tests::stream_stopped_2 ... ok
+test tests::stream_drop_removes_blocked_reader ... ok
+test tests::test_open_path_ensure_existing_path ... ok
+test tests::two_datagram_readers ... ok
+test work_limiter::tests::limit_work ... ok
+test tests::read_into_roundtrip_and_eof ... ok
+test tests::zero_rtt ... ok
+test tests::ip_blocking ... ok
+test tests::stream_id_flow_control ... ok
+test tests::poll_driver_loopback_bi_stream_echo ... ok
+test tests::weak_connection_handle ... ok
+test tests::closed_includes_path_stats_for_all_known_paths ... ok
+test tests::close_path ... ok
+test tests::read_after_close ... ok
+test tests::nat_traversal_wakes_connection_driver ... ok
+test tests::path_clone_stats_after_abandon ... ok
+test tests::test_multipath_observed_address ... ok
+test tests::handshake_timeout ... ok
+
+test result: ok. 39 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.51s

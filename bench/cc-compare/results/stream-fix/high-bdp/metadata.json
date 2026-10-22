@@ -1,0 +1,21 @@
+{
+  "hostname": "emrul-010",
+  "uname": [
+    "Linux",
+    "emrul-010",
+    "7.0.0-22-generic",
+    "#22-Ubuntu SMP PREEMPT_DYNAMIC Mon May 25 15:54:34 UTC 2026",
+    "x86_64"
+  ],
+  "binary_sha256": "727b5c94774c45b2b343ff294b2d2312c9ceb87ee315e3ee2a4ce5e0d152de8b",
+  "started_unix": 1792663424.4391274,
+  "options": {
+    "binary": "/tmp/noq-bbr-eval-20261022/native-v3",
+    "output": "/tmp/noq-bbr-eval-20261022/stream-fix-high-bdp",
+    "trials": 3,
+    "seconds": 12,
+    "warmup": 2,
+    "unseeded_netem": false,
+    "only": "high-bdp"
+  }
+}
