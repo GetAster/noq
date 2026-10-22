@@ -174,6 +174,8 @@ enum BbrState {
 /// equivalent to BBR.ack_phase states <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-5.3.3.6>
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum AckPhase {
+    /// equivalent to ACKS_INIT: not receiving bandwidth-probe feedback
+    Init,
     /// equivalent to ACKS_PROBE_STARTING
     ProbeStarting,
     /// equivalent to ACKS_PROBE_STOPPING
@@ -681,7 +683,7 @@ impl Bbr3 {
             bw_probe_up_acks: 0,
             probe_up_cnt: 0,
             cycle_stamp: None,
-            ack_phase: AckPhase::ProbeStarting,
+            ack_phase: AckPhase::Init,
             bw_probe_samples: false,
             loss_events_in_round: 0,
             last_lost_packet: None,
@@ -986,18 +988,24 @@ impl Bbr3 {
         }
     }
 
-    /// equivalent to BBRAdaptLongTermModel <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-5.3.3.6-8>
+    /// equivalent to BBRAdaptLongTermModel <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-06.html#section-5.3.3.6>
     fn adapt_long_term_model(&mut self) {
         if self.ack_phase == AckPhase::ProbeStarting && self.round_start {
             self.ack_phase = AckPhase::ProbeFeedback;
         }
-        if self.ack_phase == AckPhase::ProbeStopping
-            && self.round_start
-            && let BbrState::ProbeBw(_) = self.state
-            && let Some(rate_sample) = self.rs
-            && !rate_sample.is_app_limited
-        {
-            self.advance_max_bw_filter();
+        if self.ack_phase == AckPhase::ProbeStopping && self.round_start {
+            // The feedback round is over even if we have left ProbeBW or
+            // the current sample is app-limited. Retaining ProbeStopping
+            // advances the bandwidth filter again on later rounds, and a
+            // stale probe-sample flag misclassifies later loss feedback.
+            self.bw_probe_samples = false;
+            self.ack_phase = AckPhase::Init;
+            if let BbrState::ProbeBw(_) = self.state
+                && let Some(rate_sample) = self.rs
+                && !rate_sample.is_app_limited
+            {
+                self.advance_max_bw_filter();
+            }
         }
         if !self.is_inflight_too_high() {
             if self.inflight_longterm == u64::MAX {
@@ -2055,6 +2063,78 @@ mod test {
     use super::*;
     use core::cell::Cell;
     use core::ops::ControlFlow;
+
+    /// Obtain an ordinary rate sample through the real send/ACK callbacks,
+    /// then place it at the end of a bandwidth-probing feedback round.
+    fn stopping_probe(app_limited: bool) -> Bbr3 {
+        let mut sim = Sim::new(Bbr3Config::default(), 1200, 2_500_000.0, 80_000_000);
+        sim.run(
+            1000,
+            |_| ControlFlow::Continue(()),
+            |bbr, _, _, _| {
+                if bbr.rs.is_some() {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        );
+        let mut bbr = sim.bbr;
+        bbr.state = BbrState::ProbeBw(ProbeBwSubstate::Cruise);
+        bbr.ack_phase = AckPhase::ProbeStopping;
+        bbr.bw_probe_samples = true;
+        bbr.round_start = true;
+        bbr.rs.as_mut().unwrap().is_app_limited = app_limited;
+        bbr
+    }
+
+    #[test]
+    fn probe_feedback_ends_and_advances_bandwidth_filter_only_once() {
+        let mut bbr = stopping_probe(false);
+        let cycle = bbr.cycle_count;
+        bbr.adapt_long_term_model();
+        assert!(
+            !bbr.bw_probe_samples,
+            "feedback after the probe must not remain probe samples"
+        );
+        assert_ne!(bbr.ack_phase, AckPhase::ProbeStopping);
+        assert_eq!(bbr.cycle_count, cycle + 1);
+        // A later ACK must not advance the filter again for this same probe.
+        bbr.adapt_long_term_model();
+        assert_eq!(bbr.cycle_count, cycle + 1);
+    }
+
+    #[test]
+    fn probe_feedback_resets_even_when_sample_is_app_limited() {
+        let mut bbr = stopping_probe(true);
+        let cycle = bbr.cycle_count;
+        bbr.adapt_long_term_model();
+        assert!(!bbr.bw_probe_samples);
+        assert_ne!(bbr.ack_phase, AckPhase::ProbeStopping);
+        assert_eq!(
+            bbr.cycle_count, cycle,
+            "an app-limited sample must not advance the filter"
+        );
+    }
+
+    #[test]
+    fn probe_feedback_resets_outside_probe_bw_but_waits_for_round_start() {
+        let mut bbr = stopping_probe(false);
+        bbr.state = BbrState::ProbeRtt;
+        bbr.round_start = false;
+        let cycle = bbr.cycle_count;
+        bbr.adapt_long_term_model();
+        assert!(bbr.bw_probe_samples);
+        assert_eq!(bbr.ack_phase, AckPhase::ProbeStopping);
+        bbr.round_start = true;
+        bbr.adapt_long_term_model();
+        assert!(!bbr.bw_probe_samples);
+        assert_ne!(bbr.ack_phase, AckPhase::ProbeStopping);
+        assert_eq!(
+            bbr.cycle_count, cycle,
+            "ProbeRTT must not advance the bandwidth filter"
+        );
+    }
 
     /// PROBE_UP undo snapshot taken before a (possibly spurious) loss:
     /// (state, bw_shortterm, inflight_shortterm, inflight_longterm).
@@ -5097,7 +5177,13 @@ mod test {
         // The full 100 Mbit/s was discovered, and within a small, O(log(BDP)) number of PROBE_UP
         // round trips (BDP_HI is ~1041 packets, log2 ~= 10; the bound leaves generous headroom for
         // constant factors and the rounds where the paced sender briefly wasn't cwnd-limited).
-        let discover_rounds = discover_rounds.expect("BBR never rediscovered the full 100 Mbit/s");
+        let discover_rounds = discover_rounds.unwrap_or_else(|| {
+            panic!(
+                "BBR never rediscovered the full 100 Mbit/s: max_bw={} bytes/s, \
+                 inflight_longterm={}, cwnd={}, state={:?}, ack_phase={:?}",
+                bbr.max_bw, bbr.inflight_longterm, bbr.cwnd, bbr.state, bbr.ack_phase,
+            )
+        });
         assert!(
             discover_rounds <= 25,
             "expected O(log(BDP)) PROBE_UP rounds to rediscover BW_HI, took {discover_rounds}"
