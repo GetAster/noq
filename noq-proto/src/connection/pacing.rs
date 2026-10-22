@@ -189,7 +189,10 @@ impl Pacer {
             warn!("received a timestamp early than a previous recorded time, ignoring");
             Default::default()
         });
-        let new_tokens = (rate as f64 * time_elapsed.as_secs_f64()) as u64;
+        // Integer arithmetic, so that waiting the delay returned below always earns the
+        // whole deficit.
+        let new_tokens = u64::try_from(u128::from(rate) * time_elapsed.as_nanos() / NANOS_PER_SEC)
+            .unwrap_or(u64::MAX);
 
         // Advance `prev` only once whole bytes have been earned, so elapsed time too short to
         // pay for a single byte is carried over rather than discarded. Without this, a slow
@@ -208,10 +211,18 @@ impl Pacer {
 
         // Wait for the shortfall only. Deriving the delay from `bytes_to_send` would re-arm
         // the same interval on every poll and never retire, stalling the connection.
+        // Round up to whole nanoseconds, and to at least one: a shortfall worth less than a
+        // nanosecond at a high rate would otherwise yield a zero delay, so the pacing timer
+        // would fire at the same instant, earn nothing and re-arm forever.
         let deficit = target - self.tokens;
-        Some(Duration::from_secs_f64(deficit as f64 / rate as f64))
+        let nanos = (u128::from(deficit) * NANOS_PER_SEC).div_ceil(u128::from(rate));
+        Some(Duration::from_nanos(
+            u64::try_from(nanos).unwrap_or(u64::MAX).max(1),
+        ))
     }
 }
+
+const NANOS_PER_SEC: u128 = 1_000_000_000;
 
 /// Calculates a pacer capacity for a pacing rate
 ///
@@ -403,6 +414,31 @@ mod tests {
 
         // `poll_transmit` re-runs when the pacing timer fires. If the pacer re-derives the
         // same delay from the new `now` it would re-arm forever and the connection stalls.
+        assert_eq!(
+            pacer.delay(rtt, u64::from(mtu), mtu, now + resume_after, &metrics),
+            None,
+            "the delay the pacer asked for must be long enough to unblock the send"
+        );
+    }
+
+    #[test]
+    fn sub_nanosecond_deficit_at_high_rate_still_delays() {
+        // At 4 GB/s one byte is earned every 0.25 ns. A one-byte shortfall used to round to a
+        // zero delay, so a timer-driven caller polled again at the same instant forever.
+        const RATE: u64 = 4_000_000_000;
+        let mtu = 1500;
+        let rtt = Duration::from_micros(10);
+        let window = 2_000_000;
+        let now = Instant::now();
+        let metrics = paced_metrics(window, RATE, 2 * u64::from(mtu));
+        let mut pacer = Pacer::new(rtt, window, mtu, None, now);
+        assert_eq!(pacer.delay(rtt, u64::from(mtu), mtu, now, &metrics), None);
+
+        pacer.tokens = u64::from(mtu) - 1;
+        let resume_after = pacer
+            .delay(rtt, u64::from(mtu), mtu, now, &metrics)
+            .expect("one byte short of a datagram must block");
+        assert!(resume_after > Duration::ZERO, "a zero delay never retires");
         assert_eq!(
             pacer.delay(rtt, u64::from(mtu), mtu, now + resume_after, &metrics),
             None,
