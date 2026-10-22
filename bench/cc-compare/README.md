@@ -1,5 +1,11 @@
 # CUBIC / BBRv3 comparison
 
+**Follow-up investigation:** this branch includes the packet-growth correction
+that resolves the reset-only candidate's failing recovery test. See
+[the recovery diagnosis and validation](results/recovery-investigation.md)
+for current status and commands. The original comparison and its reset-only
+results below are retained as historical evidence from `bench/bbr3-vs-cubic-v1.4.0`.
+
 This standalone harness compares Aster's pinned Noq 1.4.0
 (`535bd88409193ae577f445a3207351bb83525f4e`) with the same implementation
 after the probe-feedback resets discussed in

@@ -1,5 +1,10 @@
 # Noq congestion-control benchmark results
 
+> Historical reset-only comparison. This follow-up branch has since corrected
+> the packet-growth accounting and passes the recovery test; see
+> [recovery-investigation.md](recovery-investigation.md). The measurements
+> below remain those of the original candidate and have not been relabeled.
+
 2026-10-22, Apple Silicon macOS, Rust 1.96.0. Baseline: Noq 1.4.0 at `535bd88409193ae577f445a3207351bb83525f4e`. Candidate: the same code with probe-feedback resets and ACKS_INIT initialization.
 
 **The reset candidate is not ready for adoption: an existing bandwidth-recovery test fails.**

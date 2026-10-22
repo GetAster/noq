@@ -1,0 +1,5 @@
+recovery bbr3 trial 0: 7.50 Mbps, p95 185.0 ms, 0/480 failed probes
+recovery bbr3 trial 1: 12.09 Mbps, p95 184.0 ms, 0/480 failed probes
+recovery bbr3 trial 2: 11.49 Mbps, p95 184.0 ms, 0/480 failed probes
+recovery bbr3 trial 3: 11.62 Mbps, p95 179.0 ms, 0/480 failed probes
+recovery bbr3 trial 4: 11.48 Mbps, p95 184.0 ms, 0/480 failed probes
