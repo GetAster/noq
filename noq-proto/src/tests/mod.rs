@@ -49,7 +49,8 @@ pub(crate) use util::subscribe;
 use util::{
     CERTIFIED_KEY, ConnPair, DEFAULT_MTU, IncomingConnectionBehavior, Pair, client_config,
     client_config_with_certs, client_config_with_deterministic_pns, client_crypto_with_alpn,
-    server_config, server_config_with_cert, server_crypto_with_alpn, validate_incoming,
+    cubic_transport_config, server_config, server_config_with_cert, server_crypto_with_alpn,
+    validate_incoming,
 };
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -844,13 +845,15 @@ fn zero_rtt_happypath() {
 #[test]
 fn zero_rtt_rejection() {
     let _guard = subscribe();
-    let server_config = ServerConfig::with_crypto(Arc::new(server_crypto_with_alpn(vec![
+    let mut server_config = ServerConfig::with_crypto(Arc::new(server_crypto_with_alpn(vec![
         "foo".into(),
         "bar".into(),
     ])));
+    server_config.transport = Arc::new(cubic_transport_config());
     let mut pair = Pair::new(Arc::new(EndpointConfig::default()), server_config);
     let mut client_crypto = Arc::new(client_crypto_with_alpn(vec!["foo".into()]));
-    let client_config = ClientConfig::new(client_crypto.clone());
+    let mut client_config = ClientConfig::new(client_crypto.clone());
+    client_config.transport = Arc::new(cubic_transport_config());
 
     // Establish normal connection
     let client_ch = pair.begin_connect(client_config);
@@ -891,7 +894,8 @@ fn zero_rtt_rejection() {
     inner.alpn_protocols = vec!["bar".into()];
 
     // Changing protocols invalidates 0-RTT
-    let client_config = ClientConfig::new(client_crypto);
+    let mut client_config = ClientConfig::new(client_crypto);
+    client_config.transport = Arc::new(cubic_transport_config());
     info!("resuming session");
     let client_ch = pair.begin_connect(client_config);
     assert!(pair.client_conn_mut(client_ch).has_0rtt());
@@ -4060,6 +4064,44 @@ fn stream_gso() {
     assert_eq!(final_transmit_count - initial_transmit_count, 2);
 }
 
+/// The production default controller, BBRv3, paces from the first flight. It must complete a
+/// handshake and a stream transfer on the deterministic driver: a pacing delay that rounded to
+/// zero at BBRv3's rate once made `drive()` spin at a single instant forever.
+#[test]
+fn default_controller_completes_stream_transfer() {
+    let _guard = subscribe();
+    let mut server_cfg = server_config();
+    server_cfg.transport = Arc::new(TransportConfig::default());
+    let mut pair = Pair::new(Default::default(), server_cfg);
+    let mut client_cfg = client_config();
+    client_cfg.transport = Arc::new(TransportConfig::default());
+    let (client_ch, server_ch) = pair.connect_with(client_cfg);
+
+    const LEN: usize = 64 * 1024;
+    let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
+    assert_eq!(
+        pair.client_send(client_ch, s).write(&[0xa5; LEN]).unwrap(),
+        LEN
+    );
+    pair.client_send(client_ch, s).finish().unwrap();
+    assert!(
+        !pair.drive_bounded(100_000),
+        "connections never went idle under the default controller"
+    );
+
+    assert_matches!(pair.server_streams(server_ch).accept(Dir::Uni), Some(stream) if stream == s);
+    let mut recv = pair.server_recv(server_ch, s);
+    let mut chunks = recv.read(true).unwrap();
+    let mut received = 0;
+    while let Some(chunk) = chunks.next(usize::MAX).unwrap() {
+        assert_eq!(chunk.offset, received as u64);
+        assert!(chunk.bytes.iter().all(|&b| b == 0xa5));
+        received += chunk.bytes.len();
+    }
+    assert_eq!(received, LEN);
+    let _ = chunks.finalize();
+}
+
 #[test]
 fn datagram_gso() {
     let _guard = subscribe();
@@ -4299,7 +4341,7 @@ fn address_discovery_zero_rtt_accepted() {
     let server = ServerConfig {
         transport: Arc::new(TransportConfig {
             address_discovery_role: crate::address_discovery::Role::both(),
-            ..TransportConfig::default()
+            ..cubic_transport_config()
         }),
         ..server_config()
     };
@@ -4309,14 +4351,14 @@ fn address_discovery_zero_rtt_accepted() {
     let client_cfg = ClientConfig {
         transport: Arc::new(TransportConfig {
             address_discovery_role: crate::address_discovery::Role::both(),
-            ..TransportConfig::default()
+            ..cubic_transport_config()
         }),
         ..client_config()
     };
     let alt_client_cfg = ClientConfig {
         transport: Arc::new(TransportConfig {
             address_discovery_role: crate::address_discovery::Role::default(),
-            ..TransportConfig::default()
+            ..cubic_transport_config()
         }),
         ..client_cfg.clone()
     };
@@ -5422,7 +5464,7 @@ fn close_during_handshake_does_not_coalesce_into_a_too_small_datagram_tail() {
     const MIN_MTU: u16 = MIN_INITIAL_SIZE;
     const MTU: u16 = 1250;
 
-    let mut transport = TransportConfig::default();
+    let mut transport = cubic_transport_config();
     transport.min_mtu(MIN_MTU);
     transport.initial_mtu(MTU);
     transport.mtu_discovery_config(None);

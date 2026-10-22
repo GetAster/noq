@@ -37,7 +37,8 @@ use crate::{
     MultipathNotNegotiated, NetworkChangeHint, PathAbandonReason, PathError, PathId, PathStats,
     PathStatus, RecvStream, SendStream, ServerConfig, SetPathStatusError, Side, StreamId, Streams,
     SystemTime, TokenLog, TokenReuseError, Transmit, TransportConfig, VarInt,
-    congestion::Controller, n0_nat_traversal,
+    congestion::{self, Controller},
+    n0_nat_traversal,
 };
 
 pub(super) const DEFAULT_MTU: usize = 1452;
@@ -91,7 +92,7 @@ impl Pair {
         rng.fill_bytes(&mut server_seed);
 
         let mut cfg = server_config();
-        let mut transport = TransportConfig::default();
+        let mut transport = cubic_transport_config();
         transport.deterministic_packet_numbers(true);
         cfg.transport = Arc::new(transport);
 
@@ -126,7 +127,7 @@ impl Pair {
 
     pub(super) fn default_with_deterministic_pns() -> Self {
         let mut cfg = server_config();
-        let mut transport = TransportConfig::default();
+        let mut transport = cubic_transport_config();
         transport.deterministic_packet_numbers(true);
         cfg.transport = Arc::new(transport);
         Self::new(Default::default(), cfg)
@@ -540,7 +541,7 @@ impl Default for ConnPairBuilder {
         let mut transport_cfg = TransportConfig {
             // Assume a low-latency connection so pacing doesn't interfere with the test
             initial_rtt: Duration::from_millis(10),
-            ..Default::default()
+            ..cubic_transport_config()
         };
         #[cfg(feature = "qlog")]
         transport_cfg.qlog_from_env("test");
@@ -1537,8 +1538,21 @@ impl Write for TestWriter {
     }
 }
 
+/// Transport configuration for the deterministic test driver.
+///
+/// Pins CUBIC. Many tests here count datagrams, driver steps and ACK timing on the assumption
+/// of a window-based controller that sends its initial window unpaced; BBRv3, the production
+/// default since `bbr3-default`, paces from the first flight. Tests of BBRv3 or of the default
+/// controller build their own configuration.
+pub(super) fn cubic_transport_config() -> TransportConfig {
+    let mut transport = TransportConfig::default();
+    transport.congestion_controller_factory(Arc::new(congestion::CubicConfig::default()));
+    transport
+}
+
 pub(super) fn server_config() -> ServerConfig {
     let mut config = ServerConfig::with_crypto(Arc::new(server_crypto()));
+    config.transport = Arc::new(cubic_transport_config());
     if !cfg!(feature = "bloom") {
         config
             .validation_token
@@ -1553,6 +1567,7 @@ pub(super) fn server_config_with_cert(
     key: PrivateKeyDer<'static>,
 ) -> ServerConfig {
     let mut config = ServerConfig::with_crypto(Arc::new(server_crypto_with_cert(cert, key)));
+    config.transport = Arc::new(cubic_transport_config());
     config
         .validation_token
         .sent(2)
@@ -1595,19 +1610,23 @@ fn server_crypto_inner(
 }
 
 pub(super) fn client_config() -> ClientConfig {
-    ClientConfig::new(Arc::new(client_crypto()))
+    let mut config = ClientConfig::new(Arc::new(client_crypto()));
+    config.transport = Arc::new(cubic_transport_config());
+    config
 }
 
 pub(super) fn client_config_with_deterministic_pns() -> ClientConfig {
     let mut cfg = ClientConfig::new(Arc::new(client_crypto()));
-    let mut transport = TransportConfig::default();
+    let mut transport = cubic_transport_config();
     transport.deterministic_packet_numbers(true);
     cfg.transport = Arc::new(transport);
     cfg
 }
 
 pub(super) fn client_config_with_certs(certs: Vec<CertificateDer<'static>>) -> ClientConfig {
-    ClientConfig::new(Arc::new(client_crypto_inner(Some(certs), None)))
+    let mut config = ClientConfig::new(Arc::new(client_crypto_inner(Some(certs), None)));
+    config.transport = Arc::new(cubic_transport_config());
+    config
 }
 
 pub(super) fn client_crypto() -> QuicClientConfig {

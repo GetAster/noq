@@ -362,6 +362,9 @@ impl TransportConfig {
     /// Typically the refcounted configuration of a `congestion::Controller`,
     /// e.g. a `congestion::NewRenoConfig`.
     ///
+    /// Defaults to `congestion::Bbr3Config::default()`. `congestion::CubicConfig` and
+    /// `congestion::NewRenoConfig` remain available for comparison and diagnosis.
+    ///
     /// # Example
     /// ```
     /// # use noq_proto::*; use std::sync::Arc;
@@ -610,7 +613,7 @@ impl Default for TransportConfig {
             #[cfg(test)]
             initial_key_phase_size: None,
 
-            congestion_controller_factory: Arc::new(congestion::CubicConfig::default()),
+            congestion_controller_factory: Arc::new(congestion::Bbr3Config::default()),
 
             enable_segmentation_offload: true,
 
@@ -960,5 +963,31 @@ impl TryFrom<Duration> for IdleTimeout {
 impl fmt::Debug for IdleTimeout {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_congestion_controller_is_bbr3() {
+        let config = TransportConfig::default();
+        let controller = config
+            .congestion_controller_factory
+            .clone()
+            .build(Instant::now(), INITIAL_MTU);
+        assert!(controller.into_any().is::<congestion::Bbr3>());
+    }
+
+    #[test]
+    fn cubic_remains_selectable() {
+        let mut config = TransportConfig::default();
+        config.congestion_controller_factory(Arc::new(congestion::CubicConfig::default()));
+        let controller = config
+            .congestion_controller_factory
+            .clone()
+            .build(Instant::now(), INITIAL_MTU);
+        assert!(controller.into_any().is::<congestion::Cubic>());
     }
 }
