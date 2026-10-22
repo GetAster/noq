@@ -1,6 +1,6 @@
 mod max_filter;
 
-use alloc::{boxed::Box, collections::VecDeque, sync::Arc};
+use alloc::{boxed::Box, collections::VecDeque, sync::Arc, vec::Vec};
 use core::any::Any;
 
 use rand::{RngExt, SeedableRng};
@@ -504,6 +504,10 @@ pub struct Bbr3 {
     /// space indexed by `SpaceKind as usize`. Packet numbers are only unique and only monotonic
     /// within a space, so the queues must be kept separate for the ordered lookups below to hold.
     packets: [VecDeque<BbrPacket>; 3],
+    /// Packet numbers acknowledged since the last cleanup. Unlike indices, these survive losses.
+    acknowledged_packets: [Vec<u64>; 3],
+    /// Upper bound on records marked stale at the previous cleanup (loss may remove some).
+    stale_packets: [usize; 3],
     /// equivalent to RS: Per-ACK Rate Sample State <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-2.2>
     rs: Option<BbrRateSample>,
     /// equivalent to BBR.rounds_since_bw_probe: rounds since last bw probe state.
@@ -677,6 +681,8 @@ impl Bbr3 {
             lost: 0,
             rs: None,
             packets: Default::default(),
+            acknowledged_packets: Default::default(),
+            stale_packets: Default::default(),
             rounds_since_bw_probe: 0,
             bw_probe_wait: Duration::ZERO,
             bw_probe_up_rounds: 0,
@@ -1629,6 +1635,46 @@ impl Bbr3 {
 }
 
 impl Bbr3 {
+    /// Keep the existing two-cleanup lifetime without revisiting the whole flight on every ACK.
+    fn cleanup_packet_history(&mut self) {
+        for ((packets, acknowledged), stale) in self
+            .packets
+            .iter_mut()
+            .zip(&mut self.acknowledged_packets)
+            .zip(&mut self.stale_packets)
+        {
+            // Pop the usual ordered prefix without copying the remaining flight. Only scan
+            // for holes when there were more stale records than we removed from the front.
+            let mut removed = 0;
+            while packets.front().is_some_and(|p| p.stale) {
+                packets.pop_front();
+                removed += 1;
+            }
+            if removed < *stale {
+                packets.retain(|p| !p.stale);
+            }
+            *stale = 0;
+            for pn in acknowledged.drain(..) {
+                if let Ok(index) = packets.binary_search_by_key(&pn, |p| p.packet_number) {
+                    let p = &mut packets[index];
+                    p.stale = true;
+                    *stale += 1;
+                }
+            }
+            // Send rounds are monotonic within each space, so expiry can only affect a prefix.
+            // A record is visited here once when it ages out, then removed at the next cleanup.
+            for p in packets.iter_mut() {
+                if self.round_count - p.round_count <= ROUND_COUNT_WINDOW {
+                    break;
+                }
+                if !p.stale {
+                    p.stale = true;
+                    *stale += 1;
+                }
+            }
+        }
+    }
+
     fn on_packet_sent(&mut self, now: Instant, bytes: u16, pn: u64, space: SpaceKind) {
         self.handle_restart_from_idle(now);
         if self.inflight == 0 {
@@ -1685,7 +1731,10 @@ impl Bbr3 {
         if let Ok(p_index) = p_index_result
             && let Some(p) = self.packets[space as usize].get_mut(p_index)
         {
-            p.acknowledged = true;
+            if !p.acknowledged {
+                self.acknowledged_packets[space as usize].push(packet_number);
+                p.acknowledged = true;
+            }
             if let Some(mut rate_sample) = self.rs {
                 rate_sample.rtt = now - p.send_time;
                 if is_newest_packet {
@@ -1753,15 +1802,7 @@ impl Bbr3 {
             } else if app_limited {
                 self.app_limited = Ord::max(self.delivered + self.inflight, 1);
             }
-            let round_count = self.round_count;
-            for packets in self.packets.iter_mut() {
-                packets.retain(|&p| !p.stale);
-                for p in packets.iter_mut() {
-                    if p.acknowledged || round_count - p.round_count > ROUND_COUNT_WINDOW {
-                        p.stale = true;
-                    }
-                }
-            }
+            self.cleanup_packet_history();
             if let Some(mut rate_sample) = self.rs {
                 rate_sample.interval = Ord::max(rate_sample.send_elapsed, rate_sample.ack_elapsed);
                 rate_sample.delivered = self.delivered.saturating_sub(rate_sample.prior_delivered);
@@ -2065,6 +2106,110 @@ mod test {
     use super::*;
     use core::cell::Cell;
     use core::ops::ControlFlow;
+
+    #[test]
+    fn incremental_history_matches_full_scan() {
+        let mut bbr = Bbr3::new(Arc::new(Bbr3Config::default()), 1200);
+        let now = Instant::now();
+        let spaces = [SpaceKind::Initial, SpaceKind::Handshake, SpaceKind::Data];
+        let mut next_pn = [0; 3];
+        let mut saw_wrapped = false;
+        // More than the expiry window, with reordered ACKs, holes, losses, duplicate ACKs,
+        // overlapping packet numbers in all spaces, and repeated ring-buffer wraparound.
+        for batch in 0..400u64 {
+            bbr.round_count = batch / 3;
+            for (i, space) in spaces.into_iter().enumerate() {
+                for _ in 0..7 {
+                    bbr.on_packet_sent(now, 1200, next_pn[i], space);
+                    next_pn[i] += 1;
+                }
+                let packets = &mut bbr.packets[i];
+                saw_wrapped |= !packets.as_slices().1.is_empty();
+                for p in packets.iter_mut() {
+                    if p.packet_number % 17 != 0
+                        && (p.packet_number + batch * 7) % 11 < 3
+                        && !p.acknowledged
+                    {
+                        p.acknowledged = true;
+                        bbr.acknowledged_packets[i].push(p.packet_number);
+                    }
+                }
+                // Loss can remove a pending ACK or a previously stale record before cleanup.
+                if batch % 5 == 0 && !packets.is_empty() {
+                    packets.remove(packets.len() / 3);
+                }
+            }
+            let mut expected = bbr.packets.clone();
+            for packets in &mut expected {
+                packets.retain(|p| !p.stale);
+                for p in packets {
+                    if p.acknowledged || bbr.round_count - p.round_count > ROUND_COUNT_WINDOW {
+                        p.stale = true;
+                    }
+                }
+            }
+            bbr.cleanup_packet_history();
+            for (actual, expected) in bbr.packets.iter().zip(&expected) {
+                assert_eq!(actual.len(), expected.len(), "batch {batch}");
+                for (actual, expected) in actual.iter().zip(expected) {
+                    assert_eq!(actual.packet_number, expected.packet_number);
+                    assert_eq!(actual.stale, expected.stale);
+                    assert_eq!(actual.acknowledged, expected.acknowledged);
+                }
+            }
+        }
+        assert!(saw_wrapped);
+    }
+
+    #[test]
+    fn incremental_history_expiry_boundary() {
+        let mut bbr = Bbr3::new(Arc::new(Bbr3Config::default()), 1200);
+        let now = Instant::now();
+        bbr.on_packet_sent(now, 1200, 0, SpaceKind::Data);
+        bbr.round_count = ROUND_COUNT_WINDOW;
+        bbr.on_packet_sent(now, 1200, 1, SpaceKind::Data);
+        bbr.cleanup_packet_history();
+        let data = SpaceKind::Data as usize;
+        assert!(bbr.packets[data].iter().all(|p| !p.stale));
+        bbr.round_count += 1;
+        bbr.cleanup_packet_history();
+        assert_eq!(bbr.packets[data].len(), 2);
+        assert!(bbr.packets[data][0].stale);
+        assert!(!bbr.packets[data][1].stale);
+        bbr.cleanup_packet_history();
+        assert_eq!(bbr.packets[data].len(), 1);
+        assert_eq!(bbr.packets[data][0].packet_number, 1);
+    }
+
+    #[test]
+    fn incremental_history_retains_ack_until_next_cleanup() {
+        let mut bbr = Bbr3::new(Arc::new(Bbr3Config::default()), 1200);
+        let now = Instant::now();
+        let rtt = RttEstimator::new(Duration::from_millis(10));
+        for pn in 0..4 {
+            bbr.on_packet_sent(now, 1200, pn, SpaceKind::Data);
+        }
+        for pn in [2, 0, 2] {
+            bbr.on_ack(now, now, 1200, pn, SpaceKind::Data, false, &rtt);
+        }
+        let data = SpaceKind::Data as usize;
+        assert_eq!(bbr.acknowledged_packets[data], [2, 0]);
+        bbr.on_end_acks(now, 4800, false, None, SpaceKind::Data);
+        assert!(bbr.packets[data].iter().all(|p| !p.stale));
+        bbr.on_end_acks(now, 2400, false, Some(2), SpaceKind::Data);
+        assert_eq!(bbr.packets[data].len(), 4);
+        assert!(bbr.packets[data][0].stale && bbr.packets[data][2].stale);
+        // ACK-before-loss remains visible until the next cleanup; queued numbers tolerate removal.
+        bbr.on_packet_lost(1200, 2, SpaceKind::Data, now);
+        bbr.on_end_acks(now, 1200, false, Some(2), SpaceKind::Data);
+        assert_eq!(
+            bbr.packets[data]
+                .iter()
+                .map(|p| p.packet_number)
+                .collect::<Vec<_>>(),
+            [1, 3]
+        );
+    }
 
     /// Obtain an ordinary rate sample through the real send/ACK callbacks,
     /// then place it at the end of a bandwidth-probing feedback round.
