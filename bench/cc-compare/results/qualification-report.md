@@ -1,7 +1,7 @@
 # Noq BBRv3 fixes and CUBIC comparison
 
 We compared CUBIC with two BBRv3 fixes following [Noq #819](https://github.com/n0-computer/noq/issues/819),
-using [Aster's Noq 1.4.0 fork at 535bd884](https://forge.emrul.dev/Aster/noq/commit/535bd88409193ae577f445a3207351bb83525f4e).
+using [Aster's Noq 1.4.0 fork at 535bd884](https://github.com/GetAster/noq/commit/535bd88409193ae577f445a3207351bb83525f4e).
 Patched BBRv3 improved goodput under independent random loss and reduced
 deep-queue latency. Clean-link goodput was 1–4% lower, with higher sender CPU
 and regressions under ECN and reordering. These results favor BBRv3 for
@@ -12,13 +12,13 @@ Measurements were taken on 22 October 2026. Production defaults remain unchanged
 
 ## Patches
 
-1. [Reset probe-feedback state — 8113467](https://forge.emrul.dev/Aster/noq/commit/8113467277d02665688c2ddf41f98dafa51bee58)
-   ([download patch](https://forge.emrul.dev/Aster/noq/commit/8113467277d02665688c2ddf41f98dafa51bee58.patch)).
+1. [Reset probe-feedback state — 8113467](https://github.com/GetAster/noq/commit/8113467277d02665688c2ddf41f98dafa51bee58)
+   ([download patch](https://github.com/GetAster/noq/commit/8113467277d02665688c2ddf41f98dafa51bee58.patch)).
    Clear `bw_probe_samples` and reset `ack_phase` to `Init` at the end of the
    feedback round, including application-limited samples and transitions
    outside ProbeBW. Bandwidth-filter advancement remains conditional.
-2. [Grow the probe inflight cap in packet-sized increments — 1e0c42c](https://forge.emrul.dev/Aster/noq/commit/1e0c42cbe096c78f70df6c42743bdf9bfedda943)
-   ([download patch](https://forge.emrul.dev/Aster/noq/commit/1e0c42cbe096c78f70df6c42743bdf9bfedda943.patch)).
+2. [Grow the probe inflight cap in packet-sized increments — 1e0c42c](https://github.com/GetAster/noq/commit/1e0c42cbe096c78f70df6c42743bdf9bfedda943)
+   ([download patch](https://github.com/GetAster/noq/commit/1e0c42cbe096c78f70df6c42743bdf9bfedda943.patch)).
    Keep `probe_up_cnt = max(cwnd / (1 << rounds), SMSS)` in bytes and grow
    `inflight_longterm` by `delta * SMSS`. The old byte-sized increments differed
    under integer rounding and the per-ACK cwnd gate.
