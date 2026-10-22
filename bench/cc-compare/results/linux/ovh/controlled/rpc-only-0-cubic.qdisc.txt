@@ -1,0 +1,12 @@
+qdisc htb 1: root refcnt 13 r2q 10 default 0x1 direct_packets_stat 1 direct_qlen 1000
+ Sent 1193781921 bytes 961609 pkt (dropped 2952, overlimits 329689 requeues 0)
+ backlog 0b 0p requeues 0
+qdisc bfifo 10: parent 1:1 limit 250000b
+ Sent 1193781835 bytes 961608 pkt (dropped 2952, overlimits 0 requeues 0)
+ backlog 0b 0p requeues 0
+qdisc htb 1: root refcnt 13 r2q 10 default 0x1 direct_packets_stat 0 direct_qlen 1000
+ Sent 33732326 bytes 282278 pkt (dropped 0, overlimits 0 requeues 0)
+ backlog 0b 0p requeues 0
+qdisc bfifo 10: parent 1:1 limit 250000b
+ Sent 33732326 bytes 282278 pkt (dropped 0, overlimits 0 requeues 0)
+ backlog 0b 0p requeues 0

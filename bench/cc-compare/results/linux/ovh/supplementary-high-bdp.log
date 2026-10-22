@@ -1,0 +1,6 @@
+high-bdp-0-cubic: CONNECTION FAILED; see client log
+high-bdp-0-bbr3: 91.79 Mbps p95=147.7ms failed=0
+high-bdp-1-bbr3: 92.74 Mbps p95=150.4ms failed=0
+high-bdp-1-cubic: CONNECTION FAILED; see client log
+high-bdp-2-cubic: CONNECTION FAILED; see client log
+high-bdp-2-bbr3: 91.48 Mbps p95=136.8ms failed=0

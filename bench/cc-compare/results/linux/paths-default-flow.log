@@ -1,0 +1,6 @@
+physical-lan-default-flow-0-cubic: 78.53 Mbps p95=164.0ms failed=0
+physical-lan-default-flow-0-bbr3: 76.15 Mbps p95=24.0ms failed=0
+physical-lan-default-flow-1-bbr3: 74.82 Mbps p95=32.6ms failed=0
+physical-lan-default-flow-1-cubic: 82.68 Mbps p95=144.5ms failed=0
+physical-lan-default-flow-2-cubic: 78.88 Mbps p95=152.7ms failed=0
+physical-lan-default-flow-2-bbr3: 80.14 Mbps p95=26.0ms failed=0

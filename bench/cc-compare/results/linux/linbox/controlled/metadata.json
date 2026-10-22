@@ -1,0 +1,20 @@
+{
+  "hostname": "mlserver-ubuntu",
+  "uname": [
+    "Linux",
+    "mlserver-ubuntu",
+    "7.0.0-34-generic",
+    "#34~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Fri Sep  4 15:38:29 UTC 2",
+    "x86_64"
+  ],
+  "binary_sha256": "7f9847d3b4de9de18e9c37d908c168fd5bf4f9a7748dae4cc8fd0922391f5306",
+  "started_unix": 1792659750.20382,
+  "options": {
+    "binary": "/tmp/noq-bbr-eval-20261022/native",
+    "output": "/tmp/noq-bbr-eval-20261022/controlled",
+    "trials": 3,
+    "seconds": 12,
+    "warmup": 2,
+    "unseeded_netem": true
+  }
+}

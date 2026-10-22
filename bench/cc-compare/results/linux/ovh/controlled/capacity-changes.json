@@ -1,0 +1,62 @@
+[
+  {
+    "tag": "recovery-0-cubic",
+    "age": 8.01654864102602,
+    "mbps": 5
+  },
+  {
+    "tag": "recovery-0-cubic",
+    "age": 16.03838563710451,
+    "mbps": 20
+  },
+  {
+    "tag": "recovery-0-bbr3",
+    "age": 8.01347804069519,
+    "mbps": 5
+  },
+  {
+    "tag": "recovery-0-bbr3",
+    "age": 16.022110648453236,
+    "mbps": 20
+  },
+  {
+    "tag": "recovery-1-bbr3",
+    "age": 8.040430050343275,
+    "mbps": 5
+  },
+  {
+    "tag": "recovery-1-bbr3",
+    "age": 16.038303274661303,
+    "mbps": 20
+  },
+  {
+    "tag": "recovery-1-cubic",
+    "age": 8.015753351151943,
+    "mbps": 5
+  },
+  {
+    "tag": "recovery-1-cubic",
+    "age": 16.038526644930243,
+    "mbps": 20
+  },
+  {
+    "tag": "recovery-2-cubic",
+    "age": 8.01982137747109,
+    "mbps": 5
+  },
+  {
+    "tag": "recovery-2-cubic",
+    "age": 16.01400386914611,
+    "mbps": 20
+  },
+  {
+    "tag": "recovery-2-bbr3",
+    "age": 8.041134431958199,
+    "mbps": 5
+  },
+  {
+    "tag": "recovery-2-bbr3",
+    "age": 16.04076063260436,
+    "mbps": 20
+  }
+]

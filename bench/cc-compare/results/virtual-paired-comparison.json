@@ -1,0 +1,74 @@
+[
+  {
+    "scenario": "clean",
+    "paired_median_difference_mbps": -0.44863633333333297,
+    "bootstrap_95pct_interval_mbps": [
+      -0.4490400000000001,
+      -0.44553333333333356
+    ],
+    "trials": 10
+  },
+  {
+    "scenario": "wan",
+    "paired_median_difference_mbps": -0.5657066666666655,
+    "bootstrap_95pct_interval_mbps": [
+      -0.5728659999999977,
+      -0.5577136666666647
+    ],
+    "trials": 10
+  },
+  {
+    "scenario": "loss-0.1pct",
+    "paired_median_difference_mbps": 13.013605166666666,
+    "bootstrap_95pct_interval_mbps": [
+      12.168727999999998,
+      13.521645833333332
+    ],
+    "trials": 10
+  },
+  {
+    "scenario": "loss-1pct",
+    "paired_median_difference_mbps": 15.781401333333331,
+    "bootstrap_95pct_interval_mbps": [
+      15.462389166666668,
+      15.904643333333333
+    ],
+    "trials": 10
+  },
+  {
+    "scenario": "deep-queue",
+    "paired_median_difference_mbps": -0.7202243333333325,
+    "bootstrap_95pct_interval_mbps": [
+      -0.7263200000000012,
+      -0.7154056666666655
+    ],
+    "trials": 10
+  },
+  {
+    "scenario": "shallow-queue",
+    "paired_median_difference_mbps": 0.08631433333333227,
+    "bootstrap_95pct_interval_mbps": [
+      0.03711166666666621,
+      0.12920933333333373
+    ],
+    "trials": 10
+  },
+  {
+    "scenario": "recovery",
+    "paired_median_difference_mbps": 7.4291133333333335,
+    "bootstrap_95pct_interval_mbps": [
+      6.491015333333333,
+      8.0499475
+    ],
+    "trials": 10
+  },
+  {
+    "scenario": "rpc-only",
+    "paired_median_difference_mbps": 0.0,
+    "bootstrap_95pct_interval_mbps": [
+      0.0,
+      0.0
+    ],
+    "trials": 10
+  }
+]

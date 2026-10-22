@@ -1,10 +1,13 @@
 # CUBIC / BBRv3 comparison
 
-**Follow-up investigation:** this branch includes the packet-growth correction
-that resolves the reset-only candidate's failing recovery test. See
-[the recovery diagnosis and validation](results/recovery-investigation.md)
-for current status and commands. The original comparison and its reset-only
-results below are retained as historical evidence from `bench/bbr3-vs-cubic-v1.4.0`.
+This branch evaluates Aster's Noq with both the probe-feedback reset and
+packet-growth corrections. The unchanged bandwidth-recovery regression now
+passes, along with all 460 protocol tests. Production defaults remain CUBIC.
+
+See the [qualification report](results/qualification-report.md),
+[comparison tables](results/qualification-tables.md),
+[reference review](results/reference-review.md), and
+[recovery diagnosis](results/recovery-investigation.md).
 
 This standalone harness compares Aster's pinned Noq 1.4.0
 (`535bd88409193ae577f445a3207351bb83525f4e`) with the same implementation
@@ -12,10 +15,9 @@ after the probe-feedback resets discussed in
 [Noq #819](https://github.com/n0-computer/noq/issues/819) and
 [BBR draft PR #114](https://github.com/ietf-wg-ccwg/draft-ietf-ccwg-bbr/pull/114).
 
-**The reset patch is experimental and must not be adopted as-is.** It fixes
-three state-transition regressions but fails an existing bandwidth-recovery
-test. The benchmark also measures a recovery regression. It changes no
-production congestion-controller defaults.
+The reset-only candidate in the original results is superseded by the
+two-fix candidate. Its failed recovery test is retained as historical evidence;
+it should not be adopted by itself.
 
 See [results/report.md](results/report.md) for the comparison, tradeoffs and
 limitations; [results/summary.csv](results/summary.csv) includes min/max
@@ -77,7 +79,7 @@ rtk proxy cargo run --locked --release --manifest-path bench/cc-compare/Cargo.to
   --no-default-features --features baseline -- \
   --trials 5 --warmup 3 --seconds 24 > bench/cc-compare/results/baseline.jsonl
 rtk proxy cargo run --locked --release --manifest-path bench/cc-compare/Cargo.toml -- \
-  --controller bbr3 --trials 5 --warmup 3 --seconds 24 > bench/cc-compare/results/probe-reset.jsonl
+  --trials 10 --warmup 3 --seconds 24 > bench/cc-compare/results/patched-full-matrix.jsonl
 rtk proxy python3 bench/cc-compare/summarize.py
 ```
 
@@ -100,6 +102,46 @@ rtk cargo test --offline -p noq-proto probe_feedback_ --lib
 rtk cargo test --offline -p noq-proto --lib
 ```
 
-The second command currently has one known failure:
-`probe_up_rediscovers_full_bw_after_10x_increase`. Resolve that regression
-and validate real networks before recommending a default switch.
+Both commands pass for the two-fix candidate.
+
+## Native Linux and physical paths
+
+`src/bin/native.rs` uses native encrypted UDP endpoints and receiver-measured
+bulk downloads, with independent 1 KiB RPC echoes every 50 ms. It checks echo
+payloads, counts deadline failures, and keeps bulk active while probes drain.
+Both endpoints select the same controller. Flow-control windows are identical
+and deliberately generous; these are congestion-control comparisons rather
+than tests of Aster's exact application settings.
+
+Build with `cargo build --locked --release --manifest-path
+bench/cc-compare/Cargo.toml --bin native`. For a standalone smoke run:
+
+```sh
+rtk proxy cargo run --locked --release --manifest-path bench/cc-compare/Cargo.toml --bin native -- \
+  --server --once --controller bbr3 --cert /tmp/noq-cert.der
+# In another terminal, after the certificate exists:
+rtk proxy cargo run --locked --release --manifest-path bench/cc-compare/Cargo.toml --bin native -- \
+  --controller bbr3 --cert /tmp/noq-cert.der --seconds 12 --warmup 2
+```
+
+`native_matrix.py` creates two endpoint namespaces and a forwarding-router
+namespace. Propagation/loss are separate from the HTB/bfifo bottleneck queue.
+It changes no host interface, host sysctl or host firewall. Cleanup runs in
+`finally`, including on interruption. Run as root with `--binary`, `--output`
+and `--trials 3`; linbox needs `--unseeded-netem` for its older iproute2.
+The core eight cases run by default. Select supplementary cases using
+`--only ecn-aqm,jitter-reorder,high-bdp`.
+
+`native_paths.py` is the environment-specific physical-path driver for the
+three authorized test hosts. It uses a temporary source-restricted Hetzner
+UDP ingress rule and removes that exact rule in `finally`. Servers have
+timeouts and owned process groups. Use it only while those hosts and their
+documented access rules remain applicable. It expects the accounting-enabled
+Linux binary at `/tmp/noq-bbr-eval-20261022/native-v2` on each host, plus
+`--local-binary` for the Mac and `--output` for the results directory.
+
+Rebuild the tables and CSV from downloaded raw evidence with:
+
+```sh
+rtk proxy python3 bench/cc-compare/analyse_qualification.py
+```

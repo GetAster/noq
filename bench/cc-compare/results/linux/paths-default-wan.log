@@ -1,0 +1,6 @@
+ovh-to-hetzner-default-flow-0-cubic: 401.24 Mbps p95=25.4ms failed=0
+ovh-to-hetzner-default-flow-0-bbr3: 394.88 Mbps p95=25.2ms failed=0
+ovh-to-hetzner-default-flow-1-bbr3: 401.62 Mbps p95=25.3ms failed=0
+ovh-to-hetzner-default-flow-1-cubic: 402.32 Mbps p95=25.3ms failed=0
+ovh-to-hetzner-default-flow-2-cubic: 402.16 Mbps p95=24.1ms failed=0
+ovh-to-hetzner-default-flow-2-bbr3: 394.43 Mbps p95=24.9ms failed=0

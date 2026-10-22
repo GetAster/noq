@@ -1,0 +1,30 @@
+physical-lan-0-cubic: CONNECTION FAILED; see client log
+physical-lan-0-bbr3: 76.54 Mbps p95=24.5ms failed=0
+physical-lan-1-bbr3: 79.71 Mbps p95=26.4ms failed=0
+physical-lan-1-cubic: CONNECTION FAILED; see client log
+physical-lan-2-cubic: CONNECTION FAILED; see client log
+physical-lan-2-bbr3: 78.54 Mbps p95=28.6ms failed=0
+ovh-to-lan-0-cubic: CONNECTION FAILED; see client log
+ovh-to-lan-0-bbr3: 134.15 Mbps p95=71.4ms failed=0
+ovh-to-lan-1-bbr3: 119.51 Mbps p95=589.1ms failed=0
+ovh-to-lan-1-cubic: CONNECTION FAILED; see client log
+ovh-to-lan-2-cubic: CONNECTION FAILED; see client log
+ovh-to-lan-2-bbr3: 128.89 Mbps p95=82.7ms failed=0
+hetzner-to-ovh-0-cubic: 929.81 Mbps p95=25.2ms failed=0
+hetzner-to-ovh-0-bbr3: 915.26 Mbps p95=24.6ms failed=0
+hetzner-to-ovh-1-bbr3: 915.16 Mbps p95=24.9ms failed=0
+hetzner-to-ovh-1-cubic: 929.10 Mbps p95=25.2ms failed=0
+hetzner-to-ovh-2-cubic: 929.81 Mbps p95=25.3ms failed=0
+hetzner-to-ovh-2-bbr3: 915.63 Mbps p95=25.0ms failed=0
+ovh-to-hetzner-0-cubic: CONNECTION FAILED; see client log
+ovh-to-hetzner-0-bbr3: CONNECTION FAILED; see client log
+ovh-to-hetzner-1-bbr3: CONNECTION FAILED; see client log
+ovh-to-hetzner-1-cubic: CONNECTION FAILED; see client log
+ovh-to-hetzner-2-cubic: CONNECTION FAILED; see client log
+ovh-to-hetzner-2-bbr3: CONNECTION FAILED; see client log
+hetzner-to-ovh-no-gso-0-cubic: 929.48 Mbps p95=25.0ms failed=0
+hetzner-to-ovh-no-gso-0-bbr3: 901.83 Mbps p95=24.6ms failed=0
+hetzner-to-ovh-no-gso-1-bbr3: 905.05 Mbps p95=24.8ms failed=0
+hetzner-to-ovh-no-gso-1-cubic: 929.70 Mbps p95=24.9ms failed=0
+hetzner-to-ovh-no-gso-2-cubic: 929.74 Mbps p95=25.0ms failed=0
+hetzner-to-ovh-no-gso-2-bbr3: 925.50 Mbps p95=24.3ms failed=0

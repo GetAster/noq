@@ -1,0 +1,8 @@
+{
+  "noq-proto/src/congestion/bbr3/mod.rs": "99e72e4686c41260b1399433f3e8e8699a08bc9deafddfee203580a908211cf2",
+  "noq-proto/src/connection/assembler.rs": "dafd3db1bf3094790b206521116d6e7018b9033a69bff4d87e07eae9b12cbc49",
+  "noq-proto/src/connection/pacing.rs": "b424ed5226b867b5c96383649bf383bd3f9a35842d8d34f311a07db50a6cb48a",
+  "Cargo.lock": "39afd80159bb468cdfa11d53632451e6196dff54b163040d3810360376635179",
+  "bench/cc-compare/Cargo.lock": "4598c59a02f6b0373819709c12e57ed740938a708d3a441d44adff842f39202b",
+  "controller_commit": "5a20cb47be726339e026c43fb260e92e8d94debc"
+}

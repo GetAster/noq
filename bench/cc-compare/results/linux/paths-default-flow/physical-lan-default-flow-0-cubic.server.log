@@ -1,0 +1,26 @@
+ready 192.168.1.140:44330 cubic
+connection end ConnectionStats { udp_tx: UdpStats { datagrams: 81012, bytes: 116938644, ios: 0 }, udp_rx: UdpStats { datagrams: 23800, bytes: 1195073, ios: 0 }, frame_tx: FrameStats { ACK: 845, ACK_FREQUENCY: 0, CONNECTION_CLOSE: 1, CRYPTO: 3, DATA_BLOCKED: 0, DATAGRAM: 0, HANDSHAKE_DONE: 1, IMMEDIATE_ACK: 4, MAX_DATA: 0, MAX_PATH_ID: 0, MAX_STREAM_DATA: 0, MAX_STREAMS_BIDI: 15, MAX_STREAMS_UNI: 0, NEW_CONNECTION_ID: 4, NEW_TOKEN: 0, PATHS_BLOCKED: 0, PATH_ABANDON: 0, PATH_ACK: 0, PATH_STATUS_AVAILABLE: 0, PATH_STATUS_BACKUP: 0, PATH_CHALLENGE: 0, PATH_CIDS_BLOCKED: 0, PATH_NEW_CONNECTION_ID: 0, PATH_RESPONSE: 0, PATH_RETIRE_CONNECTION_ID: 0, PING: 4, RESET_STREAM: 0, RETIRE_CONNECTION_ID: 1, STREAM_DATA_BLOCKED: 0, STREAMS_BLOCKED_BIDI: 0, STREAMS_BLOCKED_UNI: 0, STOP_SENDING: 0, STREAM: 80895, OBSERVED_ADDRESS: 0, ADD_ADDRESS: 0, REACH_OUT: 0, REMOVE_ADDRESS: 0 }, frame_rx: FrameStats { ACK: 23392, ACK_FREQUENCY: 0, CONNECTION_CLOSE: 1, CRYPTO: 2, DATA_BLOCKED: 0, DATAGRAM: 0, HANDSHAKE_DONE: 0, IMMEDIATE_ACK: 4, MAX_DATA: 0, MAX_PATH_ID: 0, MAX_STREAM_DATA: 707, MAX_STREAMS_BIDI: 0, MAX_STREAMS_UNI: 0, NEW_CONNECTION_ID: 5, NEW_TOKEN: 0, PATHS_BLOCKED: 0, PATH_ABANDON: 0, PATH_ACK: 0, PATH_STATUS_AVAILABLE: 0, PATH_STATUS_BACKUP: 0, PATH_CHALLENGE: 0, PATH_CIDS_BLOCKED: 0, PATH_NEW_CONNECTION_ID: 0, PATH_RESPONSE: 0, PATH_RETIRE_CONNECTION_ID: 0, PING: 4, RESET_STREAM: 0, RETIRE_CONNECTION_ID: 0, STREAM_DATA_BLOCKED: 0, STREAMS_BLOCKED_BIDI: 0, STREAMS_BLOCKED_UNI: 0, STOP_SENDING: 0, STREAM: 201, OBSERVED_ADDRESS: 0, ADD_ADDRESS: 0, REACH_OUT: 0, REMOVE_ADDRESS: 0 }, sent_packets: 81013, sent_bytes: 116933289, lost_packets: 0, lost_bytes: 0 }
+path end Some(PathStats { rtt: 106.095393ms, udp_tx: UdpStats { datagrams: 81012, bytes: 116938644, ios: 0 }, udp_rx: UdpStats { datagrams: 23800, bytes: 1195073, ios: 0 }, frame_tx: FrameStats { ACK: 845, ACK_FREQUENCY: 0, CONNECTION_CLOSE: 1, CRYPTO: 3, DATA_BLOCKED: 0, DATAGRAM: 0, HANDSHAKE_DONE: 1, IMMEDIATE_ACK: 4, MAX_DATA: 0, MAX_PATH_ID: 0, MAX_STREAM_DATA: 0, MAX_STREAMS_BIDI: 15, MAX_STREAMS_UNI: 0, NEW_CONNECTION_ID: 4, NEW_TOKEN: 0, PATHS_BLOCKED: 0, PATH_ABANDON: 0, PATH_ACK: 0, PATH_STATUS_AVAILABLE: 0, PATH_STATUS_BACKUP: 0, PATH_CHALLENGE: 0, PATH_CIDS_BLOCKED: 0, PATH_NEW_CONNECTION_ID: 0, PATH_RESPONSE: 0, PATH_RETIRE_CONNECTION_ID: 0, PING: 4, RESET_STREAM: 0, RETIRE_CONNECTION_ID: 1, STREAM_DATA_BLOCKED: 0, STREAMS_BLOCKED_BIDI: 0, STREAMS_BLOCKED_UNI: 0, STOP_SENDING: 0, STREAM: 80895, OBSERVED_ADDRESS: 0, ADD_ADDRESS: 0, REACH_OUT: 0, REMOVE_ADDRESS: 0 }, frame_rx: FrameStats { ACK: 23392, ACK_FREQUENCY: 0, CONNECTION_CLOSE: 1, CRYPTO: 2, DATA_BLOCKED: 0, DATAGRAM: 0, HANDSHAKE_DONE: 0, IMMEDIATE_ACK: 4, MAX_DATA: 0, MAX_PATH_ID: 0, MAX_STREAM_DATA: 707, MAX_STREAMS_BIDI: 0, MAX_STREAMS_UNI: 0, NEW_CONNECTION_ID: 5, NEW_TOKEN: 0, PATHS_BLOCKED: 0, PATH_ABANDON: 0, PATH_ACK: 0, PATH_STATUS_AVAILABLE: 0, PATH_STATUS_BACKUP: 0, PATH_CHALLENGE: 0, PATH_CIDS_BLOCKED: 0, PATH_NEW_CONNECTION_ID: 0, PATH_RESPONSE: 0, PATH_RETIRE_CONNECTION_ID: 0, PING: 4, RESET_STREAM: 0, RETIRE_CONNECTION_ID: 0, STREAM_DATA_BLOCKED: 0, STREAMS_BLOCKED_BIDI: 0, STREAMS_BLOCKED_UNI: 0, STOP_SENDING: 0, STREAM: 201, OBSERVED_ADDRESS: 0, ADD_ADDRESS: 0, REACH_OUT: 0, REMOVE_ADDRESS: 0 }, cwnd: 7703017, bandwidth_estimate: None, congestion_events: 0, spurious_congestion_events: 0, sent_packets: 81013, sent_bytes: 116933289, lost_packets: 0, lost_bytes: 0, sent_plpmtud_probes: 4, lost_plpmtud_probes: 0, black_holes_detected: 0, current_mtu: 1452 })
+	Command being timed: "/tmp/noq-bbr-eval-20261022/native-v3 --server --once --address 192.168.1.140:44330 --controller cubic --cert /tmp/noq-bbr-eval-20261022/paths-cert.der --default-flow-control"
+	User time (seconds): 0.45
+	System time (seconds): 0.31
+	Percent of CPU this job got: 5%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:13.00
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 6064
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 319
+	Voluntary context switches: 12989
+	Involuntary context switches: 5
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 16
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

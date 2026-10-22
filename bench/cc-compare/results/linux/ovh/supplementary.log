@@ -1,0 +1,20 @@
+ecn-aqm-0-cubic: 17.52 Mbps p95=89.9ms failed=0
+ecn-aqm-0-bbr3: 17.14 Mbps p95=148.3ms failed=0
+ecn-aqm-1-bbr3: 17.12 Mbps p95=145.9ms failed=0
+ecn-aqm-1-cubic: 17.65 Mbps p95=91.3ms failed=0
+ecn-aqm-2-cubic: 17.80 Mbps p95=91.3ms failed=0
+ecn-aqm-2-bbr3: 17.54 Mbps p95=148.8ms failed=0
+jitter-reorder-0-cubic: 11.96 Mbps p95=162.0ms failed=0
+jitter-reorder-0-bbr3: 10.33 Mbps p95=170.3ms failed=0
+jitter-reorder-1-bbr3: 9.33 Mbps p95=175.4ms failed=0
+jitter-reorder-1-cubic: 12.29 Mbps p95=155.6ms failed=0
+jitter-reorder-2-cubic: 11.70 Mbps p95=148.9ms failed=0
+jitter-reorder-2-bbr3: 5.98 Mbps p95=145.1ms failed=0
+Traceback (most recent call last):
+  File "/tmp/noq-bbr-eval-20261022/native_matrix-extra.py", line 186, in <module>
+    if __name__ == '__main__': main()
+                               ~~~~^^
+  File "/tmp/noq-bbr-eval-20261022/native_matrix-extra.py", line 162, in main
+    if client.returncode: raise RuntimeError(f'{tag}: client exit {client.returncode}')
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: high-bdp-0-cubic: client exit 1
