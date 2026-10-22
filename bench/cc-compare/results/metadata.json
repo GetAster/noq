@@ -1,0 +1,15 @@
+{
+  "baseline_revision": "535bd88409193ae577f445a3207351bb83525f4e",
+  "candidate_patch_commit": "8113467",
+  "harness_commit": "41ab05e",
+  "date": "2026-10-22",
+  "platform": "macOS-15.5-arm64-arm-64bit-Mach-O",
+  "rust": "1.96.0",
+  "counts": {
+    "baseline.jsonl": 80,
+    "probe-reset.jsonl": 40,
+    "wall-clock.jsonl": 6
+  },
+  "candidate_status": "experimental: 1 existing recovery test fails; do not adopt",
+  "salvo_review_commit": "12904e0"
+}

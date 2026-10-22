@@ -1,0 +1,6 @@
+wan cubic trial 0: 18.85 Mbps, p95 158.1 ms, 0/120 failed probes
+wan bbr3 trial 0: 17.97 Mbps, p95 141.9 ms, 0/120 failed probes
+wan bbr3 trial 0: 18.83 Mbps, p95 163.3 ms, 0/120 failed probes
+loss-1pct cubic trial 0: 1.64 Mbps, p95 111.1 ms, 0/120 failed probes
+loss-1pct bbr3 trial 0: 14.93 Mbps, p95 97.4 ms, 0/120 failed probes
+loss-1pct bbr3 trial 0: 17.34 Mbps, p95 150.0 ms, 0/120 failed probes

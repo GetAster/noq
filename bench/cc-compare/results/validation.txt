@@ -1,0 +1,32 @@
+Noq baseline: 535bd88409193ae577f445a3207351bb83525f4e (1.4.0).
+
+Baseline original suite:
+  cargo test --offline -p noq-proto --lib
+  456 passed, 0 failed (6.57s).
+
+Regression witness before algorithm change, with the three new tests added:
+  cargo test --offline -p noq-proto probe_feedback_ --lib
+  3 failed: probe_feedback_ends_and_advances_bandwidth_filter_only_once,
+    probe_feedback_resets_even_when_sample_is_app_limited,
+    probe_feedback_resets_outside_probe_bw_but_waits_for_round_start.
+
+Candidate complete suite:
+  cargo test --offline -p noq-proto --lib
+  458 passed, 1 failed (58.72s).
+  Existing failure: probe_up_rediscovers_full_bw_after_10x_increase.
+  The three new probe-feedback tests pass.
+  This existing test passes on the unmodified baseline (0.22s).
+
+Candidate release-build isolated failure confirms this is not a debug-only result:
+  cargo test --offline --release -p noq-proto probe_up_rediscovers_full_bw_after_10x_increase --lib
+  failed (5.51s). Final max_bw=10825607 bytes/s (~86.6 Mbit/s),
+  inflight_longterm=1083675, cwnd=921124, state=ProbeBw(Cruise), ack_phase=Init.
+  The assertion requires rediscovery of >=97% of 100 Mbit/s.
+
+Harness calibration: 2 passed (serialization+propagation and bounded-queue tail drop).
+Harness release clippy: passed with -D warnings.
+Changed BBR module formatting: passed with nightly rustfmt.
+Whole-workspace nightly fmt also reports pre-existing differences in config/transport.rs,
+connection/state.rs, frame.rs, packet.rs; those files were not changed.
+
+Candidate status: experiment only, NOT ready for adoption. No defaults changed.
