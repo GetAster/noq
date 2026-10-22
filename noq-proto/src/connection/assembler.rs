@@ -168,6 +168,40 @@ impl Assembler {
         }
     }
 
+    /// Coalesce adjacent buffers after `defragment` has removed overlaps.
+    ///
+    /// Well-utilized packet buffers need no allocation trimming, but can still exhaust the
+    /// chunk-count limit behind a missing packet. Copy only adjacent runs; isolated buffers
+    /// already represent distinct spans. Reuse an owned prefix's allocation so repeated
+    /// compaction can grow it amortized rather than copying the entire prefix each time.
+    fn coalesce_contiguous(&mut self) {
+        let mut buffers = mem::take(&mut self.data);
+        self.data.reserve(buffers.len());
+        while let Some(first) = buffers.pop_front() {
+            let offset = first.offset;
+            if buffers
+                .front()
+                .is_none_or(|next| next.offset != offset + first.bytes.len() as u64)
+            {
+                self.data.push_back(first);
+                continue;
+            }
+            let mut bytes = match first.bytes.try_into_mut() {
+                Ok(bytes) => bytes,
+                Err(bytes) => BytesMut::from(bytes.as_ref()),
+            };
+            while buffers
+                .front()
+                .is_some_and(|next| next.offset == offset + bytes.len() as u64)
+            {
+                let next = buffers.pop_front().unwrap();
+                bytes.extend_from_slice(&next.bytes);
+            }
+            self.data
+                .push_back(Buffer::new_defragmented(offset, bytes.freeze()));
+        }
+    }
+
     // Note: If a packet contains many frames from the same stream, the estimated over-allocation
     // will be much higher because we are counting the same allocation multiple times.
     pub(super) fn insert(
@@ -236,6 +270,9 @@ impl Assembler {
         // Small gapped frames hold over-allocation below the threshold, so bound the count too.
         if over_allocation > threshold || self.data.len() > COMPACT_THRESHOLD {
             self.defragment();
+            if self.data.len() > MAX_CHUNKS {
+                self.coalesce_contiguous();
+            }
             // ngtcp2 uses a threshold of 4000 -- try to be a little more conservative?
             if self.data.len() > MAX_CHUNKS {
                 return Err(TooManyChunks);
@@ -813,6 +850,99 @@ mod test {
             "chunk count {} exceeded the bound",
             x.data.len()
         );
+    }
+
+    #[test]
+    fn contiguous_packets_behind_one_gap_survive_chunk_pressure() {
+        const PACKET: usize = 1200;
+        const PACKETS: usize = COMPACT_THRESHOLD * 4;
+        let stream: Vec<u8> = (0..(PACKETS + 1) * PACKET)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let mut x = Assembler::new();
+        // Withhold one packet while several batches of fully utilized buffers arrive.
+        for i in 1..=PACKETS {
+            let offset = i * PACKET;
+            x.insert(
+                offset as u64,
+                Bytes::copy_from_slice(&stream[offset..offset + PACKET]),
+                PACKET,
+            )
+            .expect("one gap must not exhaust the span limit");
+            assert!(x.data.len() <= COMPACT_THRESHOLD);
+        }
+        assert!(x.read(usize::MAX, true).is_none());
+        x.insert(0, Bytes::copy_from_slice(&stream[..PACKET]), PACKET)
+            .unwrap();
+        // Partial ordered reads and read_into must both recover the exact stream.
+        let mut got = Vec::new();
+        while let Some(chunk) = x.read(PACKET / 2, true) {
+            got.extend_from_slice(&chunk.bytes);
+            let mut buf = [0; PACKET];
+            let n = x.read_into(&mut buf, true);
+            got.extend_from_slice(&buf[..n]);
+        }
+        assert_eq!(got, stream);
+        assert_eq!(x.buffered, 0);
+        assert_eq!(x.allocated, 0);
+    }
+
+    #[test]
+    fn compacted_large_span_does_not_hide_excess_gaps() {
+        let mut x = Assembler::new();
+        for i in 1..=COMPACT_THRESHOLD {
+            x.insert(i as u64, Bytes::from_static(b"x"), 1).unwrap();
+        }
+        // First force the contiguous prefix to coalesce, then exhaust the distinct-span cap.
+        let mut result = Ok(());
+        for i in 0..COMPACT_THRESHOLD {
+            result = x.insert(
+                (COMPACT_THRESHOLD + 2 + i * 2) as u64,
+                Bytes::from_static(b"x"),
+                1,
+            );
+            if result.is_err() {
+                break;
+            }
+        }
+        assert_matches!(result, Err(TooManyChunks));
+    }
+
+    #[test]
+    fn chunk_pressure_preserves_multiple_runs_and_retransmits() {
+        const PACKET: usize = 1200;
+        const RUNS: usize = MAX_CHUNKS / 2 + 8;
+        let stream: Vec<u8> = (0..RUNS * 5 * PACKET).map(|i| (i % 251) as u8).collect();
+        for ordered in [true, false] {
+            let mut x = Assembler::new();
+            x.ensure_ordering(ordered).unwrap();
+            // Four packets per run, delivered backwards, with a withheld packet between runs.
+            for run in 0..RUNS {
+                for packet in (1..5).rev().chain(core::iter::once(2)) {
+                    let offset = (run * 5 + packet) * PACKET;
+                    x.insert(
+                        offset as u64,
+                        Bytes::copy_from_slice(&stream[offset..offset + PACKET]),
+                        PACKET,
+                    )
+                    .unwrap();
+                }
+            }
+            for run in 0..RUNS {
+                let offset = run * 5 * PACKET;
+                x.insert(
+                    offset as u64,
+                    Bytes::copy_from_slice(&stream[offset..offset + PACKET]),
+                    PACKET,
+                )
+                .unwrap();
+            }
+            let mut delivered = vec![false; stream.len()];
+            drain(&mut x, 793, ordered, &stream, &mut delivered);
+            assert!(delivered.iter().all(|&received| received));
+            assert_eq!(x.buffered, 0);
+            assert_eq!(x.allocated, 0);
+        }
     }
 
     #[test]
