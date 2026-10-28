@@ -2989,6 +2989,7 @@ impl Connection {
             return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
         }
         // `Some(pn)` if this ACK raised `largest_acked_packet_pn`.
+        let prev_largest = self.spaces[space].for_path(path).largest_acked_packet_pn;
         let new_largest_pn = {
             let space = &mut self.spaces[space].for_path(path);
             if space
@@ -3008,7 +3009,7 @@ impl Connection {
             }
         };
 
-        if self.detect_spurious_loss(&ack, space, path) {
+        if self.detect_spurious_loss(&ack, space, path, prev_largest) {
             self.path_stats.get_mut(path).spurious_congestion_events += 1;
             self.path_data_mut(path)
                 .congestion
@@ -3144,29 +3145,52 @@ impl Connection {
         Ok(())
     }
 
-    fn detect_spurious_loss(&mut self, ack: &frame::Ack, space: SpaceId, path: PathId) -> bool {
+    /// Removes packets acknowledged by `ack` from the deemed-lost packets
+    ///
+    /// `prev_largest` is the largest acknowledged packet number before `ack`. Every spuriously
+    /// lost packet widens the path's loss thresholds so the same reordering is tolerated next
+    /// time. Returns whether `ack` acknowledged all deemed-lost packets.
+    fn detect_spurious_loss(
+        &mut self,
+        ack: &frame::Ack,
+        space: SpaceId,
+        path: PathId,
+        prev_largest: Option<u64>,
+    ) -> bool {
         let lost_packets = &mut self.spaces[space].for_path(path).lost_packets;
 
         if lost_packets.is_empty() {
             return false;
         }
 
+        let mut distance = 0;
+        let mut by_time = false;
         for range in ack.iter() {
-            let spurious_losses: Vec<u64> = lost_packets
+            let spurious_losses: Vec<(u64, bool)> = lost_packets
                 .iter_range(range.clone())
-                .map(|(pn, _info)| pn)
+                .map(|(pn, info)| (pn, info.by_time_threshold))
                 .collect();
 
-            for pn in spurious_losses {
+            for (pn, by_time_threshold) in spurious_losses {
                 lost_packets.remove(pn);
+                // The packet arrived this many packets behind the highest one seen so far.
+                let behind = prev_largest.map_or(0, |largest| largest.saturating_sub(pn) + 1);
+                distance = distance.max(behind);
+                by_time |= by_time_threshold;
             }
+        }
+        let all_acked = lost_packets.is_empty();
+
+        if distance > 0 || by_time {
+            self.path_data_mut(path)
+                .adapt_loss_thresholds(distance, by_time);
         }
 
         // If this ACK frame acknowledged all deemed lost packets,
         // then we have raised a spurious congestion event in the past.
         // We cannot conclude when there are remaining packets,
         // but future ACK frames might indicate a spurious loss detection.
-        lost_packets.is_empty()
+        all_acked
     }
 
     /// Drain lost packets that we reasonably think will never arrive
@@ -3352,15 +3376,15 @@ impl Connection {
         let loss_delay = path
             .rtt
             .conservative()
-            .mul_f32(self.config.time_threshold)
+            .mul_f32(path.time_threshold)
             .max(TIMER_GRANULARITY);
         let first_packet_after_rtt_sample = path.first_packet_after_rtt_sample;
+        let packet_threshold = path.packet_threshold;
 
         let largest_acked_packet_pn = self.spaces[pn_space]
             .for_path(path_id)
             .largest_acked_packet_pn
             .expect("detect_lost_packets only to be called if path received at least one ACK");
-        let packet_threshold = self.config.packet_threshold as u64;
 
         // InPersistentCongestion: Determine if all packets in the time period before the newest
         // lost packet, including the edges, are marked lost. PTO computation must always
@@ -3522,10 +3546,16 @@ impl Connection {
                 "packets lost",
             );
 
+            let packet_threshold = self.path_data(path_id).packet_threshold;
+            let largest_acked = self.spaces[pn_space]
+                .for_path(path_id)
+                .largest_acked_packet_pn;
             for &packet in &lost_packets {
                 let Some(info) = self.spaces[pn_space].for_path(path_id).take(packet) else {
                     continue;
                 };
+                let by_time_threshold = largest_acked
+                    .is_some_and(|largest| largest < packet.saturating_add(packet_threshold));
                 self.qlog
                     .emit_packet_lost(packet, &info, loss_delay, pn_space.kind(), now);
                 self.paths
@@ -3546,6 +3576,7 @@ impl Connection {
                     packet,
                     LostPacket {
                         time_sent: info.time_sent,
+                        by_time_threshold,
                     },
                 );
             }
@@ -3566,6 +3597,11 @@ impl Connection {
             // Don't apply congestion penalty for lost ack-only packets
             let lost_ack_eliciting =
                 old_bytes_in_flight != self.path_data_mut(path_id).in_flight.bytes;
+
+            if in_persistent_congestion {
+                let config = self.config.clone();
+                self.path_data_mut(path_id).reset_loss_thresholds(&config);
+            }
 
             if lost_ack_eliciting {
                 self.path_stats.get_mut(path_id).congestion_events += 1;
@@ -5824,7 +5860,13 @@ impl Connection {
         let mut new_path_data = if network_path.remote.is_ipv4()
             && network_path.remote.ip() == path.data.network_path.remote.ip()
         {
-            PathData::from_previous(network_path, &path.data, self.path_generation_counter, now)
+            PathData::from_previous(
+                network_path,
+                &path.data,
+                self.path_generation_counter,
+                now,
+                &self.config,
+            )
         } else {
             let peer_max_udp_payload_size =
                 u16::try_from(self.peer_params.max_udp_payload_size.into_inner())
@@ -6961,6 +7003,13 @@ impl Connection {
     #[cfg(test)]
     pub(crate) fn key_phase_size(&self) -> u64 {
         self.crypto_state.key_phase_size
+    }
+
+    /// The packet and time thresholds currently used to declare packets lost on `path_id`
+    #[cfg(test)]
+    pub(crate) fn loss_thresholds(&self, path_id: PathId) -> (u64, f32) {
+        let path = self.path_data(path_id);
+        (path.packet_threshold, path.time_threshold)
     }
 
     /// The number of bytes of packets containing retransmittable frames that have not been
