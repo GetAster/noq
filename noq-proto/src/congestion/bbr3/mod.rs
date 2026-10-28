@@ -1528,8 +1528,8 @@ impl Bbr3 {
     fn note_loss(&mut self, space: SpaceKind, packet_number: u64) {
         if !self.loss_in_round {
             self.loss_round_delivered = self.delivered;
+            self.save_state_upon_loss();
         }
-        self.save_state_upon_loss();
         self.loss_in_round = true;
         let continues_range = self
             .last_lost_packet
@@ -7250,5 +7250,25 @@ mod test {
             "max_bw after subsequent probing ({max_bw_final}) should still be within 10% of the \
              simulated {BW} (rel err {final_err})"
         );
+    }
+
+    #[test]
+    fn undo_state_is_saved_at_the_first_loss_of_a_round() {
+        let mut bbr = Bbr3::new(Arc::new(Bbr3Config::default()), 1200);
+        bbr.inflight_longterm = 100_000;
+
+        bbr.note_loss(SpaceKind::Data, 1);
+        // Later losses of the round see the model already cut by the first one
+        bbr.inflight_longterm = 40_000;
+        bbr.note_loss(SpaceKind::Data, 5);
+        assert_eq!(bbr.undo_inflight_longterm, 100_000);
+
+        bbr.on_spurious_congestion_event();
+        assert_eq!(bbr.inflight_longterm, 100_000);
+
+        // The next round's first loss saves anew
+        bbr.inflight_longterm = 30_000;
+        bbr.note_loss(SpaceKind::Data, 9);
+        assert_eq!(bbr.undo_inflight_longterm, 30_000);
     }
 }
