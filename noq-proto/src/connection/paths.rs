@@ -215,6 +215,16 @@ pub(super) struct PathData {
     ///
     /// Used in persistent congestion determination.
     pub(super) first_packet_after_rtt_sample: Option<(SpaceKind, u64)>,
+    /// Reordering tolerance in packets before an unacknowledged packet is declared lost
+    ///
+    /// Starts at [`TransportConfig::packet_threshold`] and is raised when packets declared lost
+    /// turn out to have been reordered, see [`PathData::adapt_loss_thresholds`].
+    pub(super) packet_threshold: u64,
+    /// Reordering tolerance as a multiple of the RTT before an unacknowledged packet is declared
+    /// lost
+    ///
+    /// Starts at [`TransportConfig::time_threshold`] and is raised like `packet_threshold`.
+    pub(super) time_threshold: f32,
     /// The in-flight packets and bytes
     ///
     /// Note that this is across all spaces on this path
@@ -286,6 +296,15 @@ pub(super) struct PathData {
     generation: u64,
 }
 
+/// Upper bound for the adapted packet threshold
+///
+/// Must exceed the number of packets in one GSO batch (at most 64), which reordering moves as a
+/// unit.
+const MAX_ADAPTIVE_PACKET_THRESHOLD: u64 = 256;
+
+/// Upper bound for the adapted time threshold, as a multiple of the RTT
+const MAX_ADAPTIVE_TIME_THRESHOLD: f32 = 2.0;
+
 impl PathData {
     pub(super) fn new(
         network_path: FourTuple,
@@ -334,6 +353,8 @@ impl PathData {
                     },
                 ),
             first_packet_after_rtt_sample: None,
+            packet_threshold: config.packet_threshold as u64,
+            time_threshold: config.time_threshold,
             in_flight: InFlight::new(),
             pending: PathRetransmits::default(),
             last_observed_addr_report: None,
@@ -350,6 +371,35 @@ impl PathData {
         }
     }
 
+    /// Raises the loss thresholds after packets declared lost were later acknowledged
+    ///
+    /// `distance` is the largest `prev_largest_acked - pn + 1` over the spuriously lost packets,
+    /// the smallest packet threshold that would not have declared them lost. `by_time` is set if
+    /// any of them was declared lost by the time threshold. The thresholds only ever grow here;
+    /// they return to the configured values in [`PathData::reset_loss_thresholds`].
+    pub(super) fn adapt_loss_thresholds(&mut self, distance: u64, by_time: bool) {
+        self.packet_threshold = self
+            .packet_threshold
+            .max(distance.min(MAX_ADAPTIVE_PACKET_THRESHOLD));
+        if by_time {
+            // 9/8 -> 5/4 -> 3/2 -> 2
+            let next = match self.time_threshold {
+                t if t < 1.25 => 1.25,
+                t if t < 1.5 => 1.5,
+                _ => MAX_ADAPTIVE_TIME_THRESHOLD,
+            };
+            self.time_threshold = self
+                .time_threshold
+                .max(next.min(MAX_ADAPTIVE_TIME_THRESHOLD));
+        }
+    }
+
+    /// Restores the configured loss thresholds
+    pub(super) fn reset_loss_thresholds(&mut self, config: &TransportConfig) {
+        self.packet_threshold = config.packet_threshold as u64;
+        self.time_threshold = config.time_threshold;
+    }
+
     /// Create a new path from a previous one.
     ///
     /// This should only be called when migrating paths.
@@ -358,6 +408,7 @@ impl PathData {
         prev: &Self,
         generation: u64,
         now: Instant,
+        config: &TransportConfig,
     ) -> Self {
         let congestion = prev.congestion.clone_box();
         let smoothed_rtt = prev.rtt.get();
@@ -382,6 +433,9 @@ impl PathData {
             total_recvd: 0,
             mtud: prev.mtud.clone(),
             first_packet_after_rtt_sample: prev.first_packet_after_rtt_sample,
+            // A new network path has its own reordering behaviour
+            packet_threshold: config.packet_threshold as u64,
+            time_threshold: config.time_threshold,
             in_flight: InFlight::new(),
             pending: PathRetransmits::default(),
             last_observed_addr_report: None,
@@ -1199,5 +1253,61 @@ mod tests {
 
         // outside range saturates
         assert_eq!(PathId::MAX.saturating_add(1u8), PathId::MAX)
+    }
+
+    fn path_data() -> PathData {
+        let network_path = FourTuple {
+            remote: "[::1]:4433".parse().unwrap(),
+            local_ip: None,
+        };
+        PathData::new(
+            network_path,
+            false,
+            None,
+            0,
+            Instant::now(),
+            &TransportConfig::default(),
+        )
+    }
+
+    #[test]
+    fn packet_threshold_follows_reordering_distance() {
+        let mut path = path_data();
+        assert_eq!(path.packet_threshold, 3);
+
+        path.adapt_loss_thresholds(2, false);
+        assert_eq!(path.packet_threshold, 3, "never lowered");
+
+        path.adapt_loss_thresholds(17, false);
+        assert_eq!(path.packet_threshold, 17);
+        assert_eq!(
+            path.time_threshold,
+            9.0 / 8.0,
+            "untouched without time loss"
+        );
+
+        path.adapt_loss_thresholds(10_000, false);
+        assert_eq!(path.packet_threshold, 256, "capped");
+    }
+
+    #[test]
+    fn time_threshold_steps_and_caps() {
+        let mut path = path_data();
+        let seen: Vec<f32> = (0..5)
+            .map(|_| {
+                path.adapt_loss_thresholds(0, true);
+                path.time_threshold
+            })
+            .collect();
+        assert_eq!(seen, [1.25, 1.5, 2.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn reset_restores_configured_thresholds() {
+        let mut path = path_data();
+        path.adapt_loss_thresholds(100, true);
+        path.reset_loss_thresholds(&TransportConfig::default());
+        assert_eq!(path.packet_threshold, 3);
+        assert_eq!(path.time_threshold, 9.0 / 8.0);
     }
 }

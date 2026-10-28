@@ -539,6 +539,8 @@ pub(super) struct SentPacket {
 pub(super) struct LostPacket {
     /// The time the packet was sent.
     pub(super) time_sent: Instant,
+    /// Whether the time threshold, rather than the packet threshold, declared it lost.
+    pub(super) by_time_threshold: bool,
 }
 
 /// Retransmittable data queue.
