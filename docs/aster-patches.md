@@ -14,7 +14,7 @@ This repository is Aster's fork of [n0-computer/noq](https://github.com/n0-compu
 
 Historical and current tag schemes in this repository:
 
-- `aster-noq-v<version>`, for example `aster-noq-v1.0.0-rc.0`, `aster-noq-v1.0.1`, `aster-noq-v1.3.2`, `aster-noq-v1.4.0`, `aster-noq-v1.4.1`, `aster-noq-v1.4.2`.
+- `aster-noq-v<version>`, for example `aster-noq-v1.0.0-rc.0`, `aster-noq-v1.0.1`, `aster-noq-v1.3.2`, `aster-noq-v1.4.0`, `aster-noq-v1.4.1`, `aster-noq-v1.4.2`, `aster-noq-v1.4.3`.
 - `aster-noq-v<version>-p<n>`, a later commit at the same crate version: `aster-noq-v1.0.0-p1` (the hand-rolled Windows UDP fix, since upstreamed; historical: under the current model a code change takes a new version, and `-p<n>` is for re-pins only).
 
 ## Current release
@@ -23,9 +23,9 @@ Historical and current tag schemes in this repository:
 |---|---|
 | Upstream base | `noq-v1.4.0` (`34f75c49f`) |
 | Integration branch | `upgrade/noq-v1.4.0` |
-| Tag | `aster-noq-v1.4.2` |
-| Pinned commit | `a3c70b7afe459cbf01122928f4f90d72063ab972` |
-| Crate version | 1.4.2 (published with the next Aster release; the registry serves up to 1.4.0, and 1.4.1 was tagged but never published) |
+| Tag | `aster-noq-v1.4.3` (to be created after the Aster release candidate passes; `aster-noq-v1.4.2` is the previous release) |
+| Pinned commit | `de89867c975192d69438164bada087506133c5a4` |
+| Crate version | 1.4.3 (published with the next Aster release; the registry serves up to 1.4.2) |
 | Crates | `noq`, `noq-udp`, `noq-proto` (all three published to the Aster registry) |
 | Source repository | `https://forge.emrul.dev/Aster/noq.git` |
 
@@ -43,16 +43,16 @@ Bootstrap pin block for source-tree builds (consumers install a versioned Aster 
 
 ```toml
 [patch.crates-io]
-noq       = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "a3c70b7afe459cbf01122928f4f90d72063ab972" }
-noq-udp   = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "a3c70b7afe459cbf01122928f4f90d72063ab972" }
-noq-proto = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "a3c70b7afe459cbf01122928f4f90d72063ab972" }
+noq       = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "de89867c975192d69438164bada087506133c5a4" }
+noq-udp   = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "de89867c975192d69438164bada087506133c5a4" }
+noq-proto = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "de89867c975192d69438164bada087506133c5a4" }
 ```
 
 The Aster iroh fork pins this commit in its own `[patch.crates-io]` (see the iroh fork's ledger, row 3), and the iroh-blobs, iroh-docs, iroh-gossip and iroh-util forks pin it in theirs.
 
 ### `upgrade/noq-v1.4.0` stack
 
-Upstream `noq-v1.4.0` already carried version 1.4.0, which Aster's registry had never served, so the 1.4.0 release had no release commit. 1.4.1 and 1.4.2 each end in a release commit.
+Upstream `noq-v1.4.0` already carried version 1.4.0, which Aster's registry had never served, so the 1.4.0 release had no release commit. 1.4.1, 1.4.2 and 1.4.3 each end in a release commit.
 
 | Commit | Subject | Source |
 |---:|---|---|
@@ -77,6 +77,10 @@ Upstream `noq-v1.4.0` already carried version 1.4.0, which Aster's registry had 
 | `13dcb5b7f` | chore: release 1.4.1 with the BBRv3 fixes, stream-buffer compaction and BBRv3 default | release commit (tag `aster-noq-v1.4.1`) |
 | `b591a4994` | perf(proto): maintain BBRv3 packet history incrementally | `-x` of `57c19a744` (row `bbr3-incremental-history`) |
 | `a3c70b7af` | chore: release 1.4.2 with incremental BBRv3 packet history | release commit (tag `aster-noq-v1.4.2`) |
+| `1826c407e` | fix(proto): adapt the reordering thresholds per path on spurious loss | `-x` of `3ba071bd9` (row `adaptive-loss-thresholds`) |
+| `8c3257ad8` | fix(bbr3): save the undo state at the first loss of a round only | `-x` of `e73810709` (row `bbr3-note-loss`) |
+| `33d4a6d89` | feat(proto): report the path's minimum RTT in PathStats | `-x` of `bd717d1e1` (row `path-stats-min-rtt`) |
+| `de89867c9` | chore: release 1.4.3 with adaptive loss thresholds and the path's minimum RTT | release commit (tag `aster-noq-v1.4.3`, to be created) |
 
 ## Patches
 
@@ -96,6 +100,9 @@ Row numbers are stable patch ids shared across Aster's iroh-family forks (iroh, 
 | `pacer-zero-delay` | `fix/pacer-zero-delay` (based on `noq-v1.4.0`) | `Pacer::delay_at_rate` never returns a zero delay: the shortfall is converted to whole nanoseconds rounded up with a floor of one, and tokens are earned with integer arithmetic so waiting the returned delay always covers the shortfall. File: `noq-proto/src/connection/pacing.rs`. | Found while adopting `bbr3-default`, not part of the cc-compare evaluation. At a controller-supplied rate (BBRv3) a shortfall worth under a nanosecond (a few bytes at multi-GB/s on a low-RTT path) truncated to a zero delay: the pacing timer fired at the same instant, earned nothing and re-armed. noq-proto's deterministic driver spins forever (`stream_gso`, `datagram_gso` hang with BBRv3); a real clock escapes only after time moves, spinning meanwhile. Upstream code (`64a7e4cb9`, #785), unfixed on upstream `main` when written. Prerequisite of `bbr3-default`. | `fcfe0994b` / `21d11b4b9` on `upgrade/noq-v1.4.0` | carried (released in 1.4.1, `aster-noq-v1.4.1`) | Low conflict risk. Test `sub_nanosecond_deficit_at_high_rate_still_delays` (fails without the fix); `default_controller_completes_stream_transfer` (row `bbr3-default`) covers it end to end. Re-measured after this fix (`results/pacer-fix/report.md`): it does not account for BBRv3's higher sender CPU; keep it as a correctness fix. Drop when an upstream release never returns a zero rate-path delay. |
 | `bbr3-default` | `fix/bbr3-default` (based on integration `21d11b4b9`, after `bbr3-probe-feedback`, `bbr3-probe-growth` and `pacer-zero-delay`) | `TransportConfig::default()` builds `congestion::Bbr3Config::default()` instead of CUBIC; CUBIC and NewReno stay selectable through `congestion_controller_factory`. noq-proto's deterministic test driver pins CUBIC via `tests::util::cubic_transport_config()`, because about thirty tests count datagrams, steps and ACK timing that assume an unpaced initial window. Files: `noq-proto/src/config/transport.rs`, `noq-proto/src/tests/{util,mod,proptests}.rs`. | Use the corrected controller across Iroh and Salvo: Iroh's default endpoint builder and Salvo's Noq listener both start from this configuration. Tradeoffs from the cc-compare qualification (measured on `535bd884` plus the two BBR fixes, before `pacer-zero-delay`): better goodput under independent random loss (1.93 → 17.07 Mbps at 1 %, 80 ms) and much lower deep-queue RPC p95 (537 → 83 ms); clean-link goodput 1–4 % lower; higher sender CPU (5.21 s vs 4.00 s median, Hetzner→OVH with GSO). Re-measured on 1.4.1 with `pacer-zero-delay`, the premium remains and is not the zero-delay spin (`results/pacer-fix/report.md`: 5.36 s vs 4.12 s with GSO, 5.71 s vs 5.60 s without), and it depends on workload and CPU governor (`results/batching-investigation/report.md`: 2.16 vs 1.07 CPU s per UDP GiB in performance mode). Pacer-batching prototypes saved at most 8.7 % cycles per GiB and were not adopted; the next candidate is incremental packet-history maintenance instead of per-ACK history walks; regressions under 1 % correlated reordering with 5 ms jitter (11.96 → 9.33 Mbps, p95 156 → 170 ms) and fq_codel/ECN (p95 91 → 148 ms; 104–114 CE marks per trial vs 21). ECN response and the reordering deficit remain open. | `31cdf75ac` / `cf212124f` on `upgrade/noq-v1.4.0`, released with the others as 1.4.1 at `13dcb5b7f` | carried (released in 1.4.1, `aster-noq-v1.4.1`) | Apply after both BBR fixes and `pacer-zero-delay`. Tests: `default_congestion_controller_is_bbr3`, `cubic_remains_selectable`, `default_controller_completes_stream_transfer`. On upstream test changes, new driver tests inherit CUBIC through the harness constructors; a test that builds `TransportConfig::default()` itself and counts packets needs `cubic_transport_config()`. Consumers: verify the selected controller (explicit `congestion_controller_factory` or `transport_config_tuner` overrides in Iroh, Salvo and Aster), and select a common controller explicitly when comparing backends. |
 | `bbr3-incremental-history` | `bbr3-incremental-history` (based on integration `13dcb5b7f`, the 1.4.1 release it optimises) | Maintains BBRv3's per-space packet history incrementally: newly acknowledged packet numbers go into a reusable per-space vector; at ACK-batch end the previous batch's stale prefix is removed with `pop_front`, only the new records are marked, and only the expired prefix is aged. A per-space stale count bounds earlier stale records; when prefix removal does not account for it (reordered holes, loss removals), the existing linear `retain` runs, so heavily reordered traffic keeps the old linear compaction bound. No new per-packet fields; no pacer, controller-model, runtime or transport-parameter change. File: `noq-proto/src/congestion/bbr3/mod.rs`. | Cuts the BBRv3 sender CPU premium that `bbr3-default` brought to Iroh and Salvo. Headline numbers (six interleaved pairs, k2 → OVH, unlimited bulk plus a 1 KiB RPC every 50 ms, normalised per sender UDP GiB, 95 % paired bootstrap CIs): cycles −28.4 % (−20.4 to −35.7 %), CPU seconds −27.0 % (2.674 → 1.953), instructions −46.8 %; throughput −0.3 % (CI −1.2 to +0.3 %), RPC p95 −0.071 ms (CI −0.235 to +0.084); syscall and wakeup counts unchanged. The history `retain` cost falls from 0.5256 to 0.0007 CPU s/GiB, and history/ACK processing supplies 95 % of the saving. In the three blocks with matched CUBIC controls it removes 35.1 % (CI 16.7–45.7 %) of BBRv3's CPU premium over CUBIC (1.151 / 2.550 / 2.059 CPU s/GiB for CUBIC / 1.4.1 BBRv3 / this patch); it does not remove BBR's syscall and wakeup premium. Report: `bench/cc-compare/results/incremental-history/report.md` in the `bbr-incremental-history` worktree (local, with raw perf recordings; not published). | `57c19a744` / `b591a4994` on `upgrade/noq-v1.4.0`, released as 1.4.2 at `a3c70b7af` | carried (released in 1.4.2, `aster-noq-v1.4.2`) | Low to medium conflict risk in `bbr3/mod.rs` packet-history bookkeeping; port after the BBR rows. Three tests check equivalence with the former full-scan algorithm over 400 batches in every packet-number space, wrapped queues, reordered ACKs, loss removals, the expiry boundary, duplicate-ACK bookkeeping, ACK before loss and delayed removal. Acknowledged and aged records keep the existing one-cleanup delay before removal. noq-proto 471, noq 39 (3 ignored), clippy and the scoped fmt check clean. |
+| `adaptive-loss-thresholds` | `fix/adaptive-loss-thresholds` (based on integration `a3c70b7af`, the 1.4.2 release) | Per-path packet and time loss thresholds that rise on spurious loss. When a packet declared lost is acknowledged afterwards, the path's packet threshold rises to the observed reordering distance (capped at 256) and its time threshold steps 9/8, 5/4, 3/2, 2; both reset on persistent congestion and on path migration. Files: `noq-proto/src/connection/mod.rs`, `noq-proto/src/connection/paths.rs`, `noq-proto/src/connection/spaces.rs`, `noq-proto/src/tests/mod.rs`. | Under mild reordering (netem jitter) the fixed thresholds declared tens of thousands of packets lost and BBRv3 collapsed. Lima, 50 ms RTT ±1 ms: Aster node 17–22 Mbit/s before, 492–502 after (TCP 421–471); 20 ms ±0.2 ms: 295–513 before, 948–1054 after. Addresses the reordering deficit left open in row `bbr3-default`. | `3ba071bd9` / `1826c407e` on `upgrade/noq-v1.4.0`, released as 1.4.3 at `de89867c9` | carried (1.4.3, `aster-noq-v1.4.3` once tagged) | Medium conflict risk in the loss-detection code in `connection/mod.rs` and the per-path state in `paths.rs`. Carry with `bbr3-note-loss`. Drop when an upstream release adapts its reordering thresholds on spurious loss. |
+| `bbr3-note-loss` | `fix/adaptive-loss-thresholds` (same branch, second commit, based on integration `a3c70b7af`) | BBRv3 saves its undo state only at the first loss of a round (draft-ietf-ccwg-bbr `BBRNoteLoss`), instead of on every loss. File: `noq-proto/src/congestion/bbr3/mod.rs`. | Completes `adaptive-loss-thresholds`: the undo state that a spurious-loss recovery restores must be the one from before the round's first loss. Found in the same reordering investigation. | `e73810709` / `8c3257ad8` on `upgrade/noq-v1.4.0`, released as 1.4.3 at `de89867c9` | carried (1.4.3, `aster-noq-v1.4.3` once tagged) | Low conflict risk, one file. Port after the BBR rows. Drop when an upstream release implements `BBRNoteLoss` equivalently. |
+| `path-stats-min-rtt` | `fix/path-stats-min-rtt` (based on integration `a3c70b7af`) | Adds `PathStats::min_rtt`, the path's minimum observed RTT. Files: `noq-proto/src/connection/mod.rs`, `noq-proto/src/connection/stats.rs`, `noq-proto/src/tests/mod.rs`. | Consumed by iroh fork row 45 (`fix/select-path-by-min-rtt`): iroh's path selector compares min RTT instead of smoothed RTT, so a path's own bulk-transfer queue no longer makes a freshly validated sibling path look faster. | `bd717d1e1` / `33d4a6d89` on `upgrade/noq-v1.4.0`, released as 1.4.3 at `de89867c9` | carried (1.4.3, `aster-noq-v1.4.3` once tagged) | Low conflict risk. A public-API addition on `PathStats`; iroh 1.4.2002 requires noq 1.4.3 for it. |
 
 Bookkeeping and documentation commits (not needed at runtime):
 
@@ -150,6 +157,8 @@ git cherry-pick -x 786f7ccda ae28c2bae  # bbr3-probe-feedback, bbr3-probe-growth
 git cherry-pick -x f5e70a515 bde811195  # stream-buffer-spans
 git cherry-pick -x 21d11b4b9 cf212124f  # pacer-zero-delay, then bbr3-default
 git cherry-pick -x b591a4994          # bbr3-incremental-history
+git cherry-pick -x 1826c407e 8c3257ad8  # adaptive-loss-thresholds, bbr3-note-loss
+git cherry-pick -x 33d4a6d89          # path-stats-min-rtt
 git cherry-pick -x dd9c07514          # fmt; or re-run cargo fmt over the patch files only
 # commits that already carry -x lines naming published commits: replay them as they
 # are; do not add another -x that would name an unpublished trial commit
@@ -209,7 +218,15 @@ Before the current branch model, fork `main` mirrored upstream `main` and was re
 
 ## History
 
-### 1.4.1 and 1.4.2 (2026-10-22), current
+### 1.4.3 (2026-10-28), current
+
+| Upstream base | Tag | Pinned commit | Branch |
+|---|---|---|---|
+| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.3` (to be created after the Aster release candidate passes) | `de89867c975192d69438164bada087506133c5a4` | `upgrade/noq-v1.4.0` |
+
+- **1.4.3** (`de89867c9`): rows `adaptive-loss-thresholds`, `bbr3-note-loss` and `path-stats-min-rtt`, then a release commit. The registry serves up to 1.4.2, so 1.4.3 is the next free version. The iroh fork requires it (iroh row 45); the satellites and Salvo keep their caret requirements and need no republication.
+
+### 1.4.1 and 1.4.2 (2026-10-22)
 
 | Upstream base | Tag | Pinned commit | Branch |
 |---|---|---|---|
