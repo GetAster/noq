@@ -217,6 +217,11 @@ impl core::fmt::Debug for FrameStats {
 pub struct PathStats {
     /// Current best estimate of this connection's latency (round-trip-time).
     pub rtt: Duration,
+    /// Minimum round-trip-time observed on this path.
+    ///
+    /// Unlike [`Self::rtt`] this is never inflated by queueing delay on the path, so it
+    /// approximates the path's base latency. It never increases.
+    pub min_rtt: Duration,
     /// Statistics about datagrams and bytes sent on this path.
     pub udp_tx: UdpStats,
     /// Statistics about datagrams and bytes received on this path.
@@ -324,9 +329,10 @@ impl core::ops::Add<PathStats> for ConnectionStats {
 
     fn add(self, rhs: PathStats) -> Self::Output {
         // Be aware that Connection::stats() relies on the fact this function ignores the
-        // rtt, cwnd and current_mtu fields.
+        // rtt, min_rtt, cwnd and current_mtu fields.
         let PathStats {
             rtt: _,
+            min_rtt: _,
             udp_tx,
             udp_rx,
             frame_tx,
@@ -362,9 +368,10 @@ impl core::ops::Add<PathStats> for ConnectionStats {
 impl core::ops::AddAssign<PathStats> for ConnectionStats {
     fn add_assign(&mut self, rhs: PathStats) {
         // Be aware that Connection::stats() relies on the fact this function ignores the
-        // rtt, cwnd and current_mtu fields.
+        // rtt, min_rtt, cwnd and current_mtu fields.
         let PathStats {
             rtt: _,
+            min_rtt: _,
             udp_tx: path_udp_tx,
             udp_rx: path_udp_rx,
             frame_tx: path_frame_tx,
