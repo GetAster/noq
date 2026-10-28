@@ -5648,3 +5648,214 @@ fn qlog_packet_lost_trigger() {
         ]
     );
 }
+
+/// Result of [`bulk_transfer`]
+struct BulkOutcome {
+    steps: usize,
+    lost_packets: u64,
+    congestion_events: u64,
+    thresholds: (u64, f32),
+}
+
+/// Sends `total` bytes client to server on a uni stream, calling `fault` on the packets in
+/// flight towards the server after each client flight.
+///
+/// Panics unless the transfer completes within `max_steps` simulation steps.
+fn bulk_transfer(
+    pair: &mut Pair,
+    client_ch: ConnectionHandle,
+    server_ch: ConnectionHandle,
+    total: usize,
+    max_steps: usize,
+    mut fault: impl FnMut(&mut Pair, usize),
+) -> BulkOutcome {
+    const CHUNK: [u8; 16 * 1024] = [42; 16 * 1024];
+    let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
+    let (mut sent, mut received, mut finished) = (0, 0, false);
+    let mut server_stream = None;
+    for step in 0..max_steps {
+        while sent < total {
+            let len = CHUNK.len().min(total - sent);
+            match pair.client_send(client_ch, s).write(&CHUNK[..len]) {
+                Ok(n) => sent += n,
+                Err(WriteError::Blocked) => break,
+                Err(e) => panic!("write failed: {e}"),
+            }
+        }
+        if sent == total && !finished {
+            pair.client_send(client_ch, s).finish().unwrap();
+            finished = true;
+        }
+        pair.drive_client();
+        fault(pair, step);
+        pair.drive_server();
+        if server_stream.is_none() {
+            server_stream = pair.server_streams(server_ch).accept(Dir::Uni);
+        }
+        if let Some(id) = server_stream {
+            let mut recv = pair.server_recv(server_ch, id);
+            let mut chunks = recv.read(true).unwrap();
+            while let Ok(Some(chunk)) = chunks.next(usize::MAX) {
+                received += chunk.bytes.len();
+            }
+            let _ = chunks.finalize();
+        }
+        if received == total {
+            let stats = pair
+                .client_conn_mut(client_ch)
+                .path_stats(PathId::ZERO)
+                .unwrap();
+            return BulkOutcome {
+                steps: step,
+                lost_packets: stats.lost_packets,
+                congestion_events: stats.congestion_events,
+                thresholds: pair
+                    .client_conn_mut(client_ch)
+                    .loss_thresholds(PathId::ZERO),
+            };
+        }
+        pair.advance_time();
+    }
+    panic!("transfer incomplete after {max_steps} steps: {received}/{total} bytes");
+}
+
+fn bulk_pair() -> (Pair, ConnectionHandle, ConnectionHandle) {
+    let mut pair = Pair::default();
+    pair.routes.set_latency(Duration::from_millis(10));
+    let (client_ch, server_ch) = pair.connect();
+    (pair, client_ch, server_ch)
+}
+
+/// Delays the earliest packet in flight behind the latest one on every third flight
+fn reorder_periodically(pair: &mut Pair, step: usize) {
+    if step.is_multiple_of(3) && (4..=48).contains(&pair.server.inbound.len()) {
+        pair.server.inbound.reorder();
+    }
+}
+
+#[test]
+fn reordering_does_not_keep_causing_loss() {
+    let _guard = subscribe();
+    let (mut pair, client_ch, server_ch) = bulk_pair();
+    let out = bulk_transfer(
+        &mut pair,
+        client_ch,
+        server_ch,
+        8 * 1024 * 1024,
+        200_000,
+        reorder_periodically,
+    );
+    assert!(out.thresholds.0 > 3, "packet threshold did not adapt");
+    assert!(out.steps < 1000, "took {} steps", out.steps);
+    // Losses are only declared while the thresholds are still catching up with the reordering
+    assert!(out.lost_packets <= 50, "{} lost", out.lost_packets);
+    assert!(
+        out.congestion_events <= 20,
+        "{} congestion events",
+        out.congestion_events
+    );
+}
+
+#[test]
+fn real_loss_is_still_recovered() {
+    let _guard = subscribe();
+    let (mut pair, client_ch, server_ch) = bulk_pair();
+    let out = bulk_transfer(
+        &mut pair,
+        client_ch,
+        server_ch,
+        4 * 1024 * 1024,
+        50_000,
+        |pair, step| {
+            if step.is_multiple_of(5) && pair.server.inbound.len() >= 4 {
+                pair.server.inbound.pop_first();
+            }
+        },
+    );
+    assert!(out.lost_packets > 0);
+    assert!(out.congestion_events > 0);
+    // Nothing that was declared lost came back, so there was nothing to adapt to
+    assert_eq!(out.thresholds, (3, 9.0 / 8.0));
+}
+
+#[test]
+fn loss_thresholds_reset_on_persistent_congestion() {
+    let _guard = subscribe();
+    let (mut pair, client_ch, server_ch) = bulk_pair();
+    let out = bulk_transfer(
+        &mut pair,
+        client_ch,
+        server_ch,
+        2 * 1024 * 1024,
+        50_000,
+        reorder_periodically,
+    );
+    assert!(out.thresholds.0 > 3);
+
+    // Black-hole the path for several PTOs, far longer than the persistent congestion period
+    let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
+    let probes_before = pair
+        .client_conn_mut(client_ch)
+        .stats()
+        .frame_tx
+        .immediate_ack;
+    while pair
+        .client_conn_mut(client_ch)
+        .stats()
+        .frame_tx
+        .immediate_ack
+        < probes_before + 8
+    {
+        let _ = pair.client_send(client_ch, s).write(&[42; 4096]);
+        pair.drive_client();
+        pair.server.inbound.clear();
+        pair.drive_server();
+        pair.advance_time();
+    }
+    // The probe that gets through acknowledges packets spanning the whole outage
+    pair.drive();
+    assert_eq!(
+        pair.client_conn_mut(client_ch)
+            .loss_thresholds(PathId::ZERO),
+        (3, 9.0 / 8.0)
+    );
+}
+
+#[test]
+fn loss_thresholds_survive_a_single_pto() {
+    let _guard = subscribe();
+    let (mut pair, client_ch, server_ch) = bulk_pair();
+    let out = bulk_transfer(
+        &mut pair,
+        client_ch,
+        server_ch,
+        2 * 1024 * 1024,
+        50_000,
+        reorder_periodically,
+    );
+    let adapted = out.thresholds;
+    assert!(adapted.0 > 3);
+
+    // Lose the tail until the first loss probes go out, then let the path recover
+    let probes = |pair: &mut Pair| {
+        pair.client_conn_mut(client_ch)
+            .stats()
+            .frame_tx
+            .immediate_ack
+    };
+    let before = probes(&mut pair);
+    let s = pair.client_streams(client_ch).open(Dir::Uni).unwrap();
+    pair.client_send(client_ch, s).write(&[42; 4096]).unwrap();
+    while probes(&mut pair) == before {
+        pair.drive_client();
+        pair.server.inbound.clear();
+        pair.drive_server();
+        assert!(pair.advance_time());
+    }
+    pair.drive();
+    assert_eq!(
+        pair.client_conn_mut(client_ch)
+            .loss_thresholds(PathId::ZERO),
+        adapted
+    );
+}
