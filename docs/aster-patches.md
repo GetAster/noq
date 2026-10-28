@@ -7,14 +7,14 @@ This repository is Aster's fork of [n0-computer/noq](https://github.com/n0-compu
 - `main` is upstream `main` plus one commit: the Aster README preamble and this ledger. Nothing is built from `main`. It is refreshed with `git merge upstream/main` and is never reset or force-pushed. Ledger edits are commits on `main`, never on `upgrade/*`.
 - `upgrade/<repo>-v<upstream version>` (for example `upgrade/iroh-v1.4.0`, `upgrade/iroh-blobs-v0.103.1`) is the patched integration line: the upstream release plus the patches in this ledger. A new upstream base always gets a new branch, cut from the upstream release tag; Aster-only fixes and re-pins append to the current branch. Per-minor names (`upgrade/iroh-blobs-v0.103`, `upgrade/salvo-v1.0`, …) are historical. Consumers pin commits on it. Published `upgrade/*` branches and tags are never rewritten; a failed attempt is superseded by new commits and a new version.
 - Topic branches carry one change each, are named for the change (for example `feat/read-into`, `security/plumtree-bounds`), are based on the upstream release tag (or, for a patch that builds on another patch, on that prerequisite's commit, recorded in its row), and are cherry-picked with `git cherry-pick -x` onto the upgrade branch, so every upgrade-branch commit names its source.
-- Version: the upstream version if Aster's registry has never served that version or a higher one in the series; otherwise the next patch above Aster's highest published version. A re-pin without a code change keeps the version and takes the tag suffix `-p<n>`.
+- Version (option E, effective from the first publication after 1.4.2): `major.minor.P` with `P = 1000 * (upstream_patch + 1) + n`, where `n` (1 to 999) counts Aster's patch releases on that upstream version: upstream 1.4.0 plus our first release is `1.4.1001`, our third `1.4.1003`. Upstream patch numbers stay below 1000, so our numbers never collide with a crates.io release; caret requirements still match. `publish-native-stack.py check` in the Aster repository fails a new version outside that space or present on crates.io. Already published versions (1.4.2 and earlier) are grandfathered. A re-pin without a code change keeps the version and takes the tag suffix `-p<n>`.
 - Tags: `aster-<repo>-v<published version>` (re-pins `aster-<repo>-v<published version>-p<n>`), created only after the Aster consumer trial passes against those exact commits, because tags cannot be moved.
 - The fork manifest is `iroh-fork-manifest.toml` in the Aster repository (the only copy).
 - Aster does not submit patches upstream; upstream maintainers are welcome to take any patch here.
 
 Historical and current tag schemes in this repository:
 
-- `aster-noq-v<version>`, for example `aster-noq-v1.0.0-rc.0`, `aster-noq-v1.0.1`, `aster-noq-v1.3.2`, `aster-noq-v1.4.0`, `aster-noq-v1.4.1`, `aster-noq-v1.4.2`, `aster-noq-v1.4.3`.
+- `aster-noq-v<version>`, for example `aster-noq-v1.0.0-rc.0`, `aster-noq-v1.0.1`, `aster-noq-v1.3.2`, `aster-noq-v1.4.0`, `aster-noq-v1.4.1`, `aster-noq-v1.4.2`, `aster-noq-v1.4.1001`.
 - `aster-noq-v<version>-p<n>`, a later commit at the same crate version: `aster-noq-v1.0.0-p1` (the hand-rolled Windows UDP fix, since upstreamed; historical: under the current model a code change takes a new version, and `-p<n>` is for re-pins only).
 
 ## Current release
@@ -23,9 +23,9 @@ Historical and current tag schemes in this repository:
 |---|---|
 | Upstream base | `noq-v1.4.0` (`34f75c49f`) |
 | Integration branch | `upgrade/noq-v1.4.0` |
-| Tag | `aster-noq-v1.4.3` (to be created after the Aster release candidate passes; `aster-noq-v1.4.2` is the previous release) |
-| Pinned commit | `de89867c975192d69438164bada087506133c5a4` |
-| Crate version | 1.4.3 (published with the next Aster release; the registry serves up to 1.4.2) |
+| Tag | `aster-noq-v1.4.1001` (to be created after the Aster release candidate passes; `aster-noq-v1.4.2` is the previous release) |
+| Pinned commit | `379f73677c057908b7e43a40466e38d2bbe75630` |
+| Crate version | 1.4.1001 (published with the next Aster release; the registry serves up to 1.4.2) |
 | Crates | `noq`, `noq-udp`, `noq-proto` (all three published to the Aster registry) |
 | Source repository | `https://forge.emrul.dev/Aster/noq.git` |
 
@@ -43,16 +43,16 @@ Bootstrap pin block for source-tree builds (consumers install a versioned Aster 
 
 ```toml
 [patch.crates-io]
-noq       = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "de89867c975192d69438164bada087506133c5a4" }
-noq-udp   = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "de89867c975192d69438164bada087506133c5a4" }
-noq-proto = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "de89867c975192d69438164bada087506133c5a4" }
+noq       = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "379f73677c057908b7e43a40466e38d2bbe75630" }
+noq-udp   = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "379f73677c057908b7e43a40466e38d2bbe75630" }
+noq-proto = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "379f73677c057908b7e43a40466e38d2bbe75630" }
 ```
 
 The Aster iroh fork pins this commit in its own `[patch.crates-io]` (see the iroh fork's ledger, row 3), and the iroh-blobs, iroh-docs, iroh-gossip and iroh-util forks pin it in theirs.
 
 ### `upgrade/noq-v1.4.0` stack
 
-Upstream `noq-v1.4.0` already carried version 1.4.0, which Aster's registry had never served, so the 1.4.0 release had no release commit. 1.4.1, 1.4.2 and 1.4.3 each end in a release commit.
+Upstream `noq-v1.4.0` already carried version 1.4.0, which Aster's registry had never served, so the 1.4.0 release had no release commit. 1.4.1, 1.4.2 and 1.4.1001 each end in a release commit; 1.4.3 (`de89867c9`) was superseded by 1.4.1001 before any publication or tag.
 
 | Commit | Subject | Source |
 |---:|---|---|
@@ -80,7 +80,8 @@ Upstream `noq-v1.4.0` already carried version 1.4.0, which Aster's registry had 
 | `1826c407e` | fix(proto): adapt the reordering thresholds per path on spurious loss | `-x` of `3ba071bd9` (row `adaptive-loss-thresholds`) |
 | `8c3257ad8` | fix(bbr3): save the undo state at the first loss of a round only | `-x` of `e73810709` (row `bbr3-note-loss`) |
 | `33d4a6d89` | feat(proto): report the path's minimum RTT in PathStats | `-x` of `bd717d1e1` (row `path-stats-min-rtt`) |
-| `de89867c9` | chore: release 1.4.3 with adaptive loss thresholds and the path's minimum RTT | release commit (tag `aster-noq-v1.4.3`, to be created) |
+| `de89867c9` | chore: release 1.4.3 with adaptive loss thresholds and the path's minimum RTT | superseded release commit (never published or tagged) |
+| `379f73677` | chore: release 1.4.1001 under the fork version rule | release commit (tag `aster-noq-v1.4.1001`, to be created) |
 
 ## Patches
 
@@ -218,13 +219,13 @@ Before the current branch model, fork `main` mirrored upstream `main` and was re
 
 ## History
 
-### 1.4.3 (2026-10-28), current
+### 1.4.1001 (2026-10-28), current
 
 | Upstream base | Tag | Pinned commit | Branch |
 |---|---|---|---|
-| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.3` (to be created after the Aster release candidate passes) | `de89867c975192d69438164bada087506133c5a4` | `upgrade/noq-v1.4.0` |
+| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.1001` (to be created after the Aster release candidate passes) | `379f73677c057908b7e43a40466e38d2bbe75630` | `upgrade/noq-v1.4.0` |
 
-- **1.4.3** (`de89867c9`): rows `adaptive-loss-thresholds`, `bbr3-note-loss` and `path-stats-min-rtt`, then a release commit. The registry serves up to 1.4.2, so 1.4.3 is the next free version. The iroh fork requires it (iroh row 46); the satellites and Salvo keep their caret requirements and need no republication.
+- **1.4.1001** (`379f73677`): rows `adaptive-loss-thresholds`, `bbr3-note-loss` and `path-stats-min-rtt`, then a release commit. `de89867c9` first declared these as 1.4.3, the next free version under the old rule; the owner's fork version rule (option E) puts the first release on upstream 1.4.0 at 1.4.1001, so 1.4.3 was superseded by `379f73677` before any publication or tag (code identical, versions only). The iroh fork requires it (iroh row 46); the satellites and Salvo keep their caret requirements and need no republication.
 
 ### 1.4.1 and 1.4.2 (2026-10-22)
 
