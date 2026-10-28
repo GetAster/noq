@@ -2708,7 +2708,7 @@ impl Connection {
         let mut stats = self.partial_stats.clone();
 
         for path_stats in self.path_stats.iter_stats() {
-            // Self::path_stats() computes the path rtt, cwnd and current_mtu on access
+            // Self::path_stats() computes the path rtt, min_rtt, cwnd and current_mtu on access
             // because they are not simple counters. When computing the connection stats we
             // can skip that effort since those fields are not used in the `impl
             // Add<PathStats> for ConnectionStats`.
@@ -2723,6 +2723,7 @@ impl Connection {
         let path = self.paths.get(&path_id)?;
         let mut stats = self.path_stats.get(path_id).unwrap_or_default();
         stats.rtt = path.data.rtt.get();
+        stats.min_rtt = path.data.rtt.min();
         stats.cwnd = path.data.congestion.window();
         stats.bandwidth_estimate = path.data.congestion.metrics().bandwidth_estimate;
         stats.current_mtu = path.data.mtud.current_mtu();

@@ -247,6 +247,18 @@ fn stats_include_congestion_controller_bandwidth_estimate() {
 }
 
 #[test]
+fn path_stats_min_rtt() {
+    let _guard = subscribe();
+    let mut pair = ConnPair::builder()
+        .with_latency(Duration::from_millis(20))
+        .connect();
+    let stats = pair.conn_mut(Client).path_stats(PathId::ZERO).unwrap();
+
+    assert!(stats.min_rtt > Duration::ZERO);
+    assert!(stats.min_rtt <= stats.rtt);
+}
+
+#[test]
 fn draft_version_compat() {
     let _guard = subscribe();
 
