@@ -23,7 +23,7 @@ Historical and current tag schemes in this repository:
 |---|---|
 | Upstream base | `noq-v1.4.0` (`34f75c49f`) |
 | Integration branch | `upgrade/noq-v1.4.0` |
-| Tag | `aster-noq-v1.4.1002`  (`aster-noq-v1.4.1001` is the previous release) |
+| Tag | `aster-noq-v1.4.1002` (`aster-noq-v1.4.1001` is the previous release) |
 | Pinned commit | `4e193fb2dc2cce206c4cd24b37b16263657bf5da` |
 | Crate version | 1.4.1002 (published with the next Aster release; the registry serves up to 1.4.2) |
 | Crates | `noq`, `noq-udp`, `noq-proto` (all three published to the Aster registry) |
