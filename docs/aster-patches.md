@@ -23,7 +23,7 @@ Historical and current tag schemes in this repository:
 |---|---|
 | Upstream base | `noq-v1.4.0` (`34f75c49f`) |
 | Integration branch | `upgrade/noq-v1.4.0` |
-| Tag | `aster-noq-v1.4.1002` (to be created after the Aster release candidate passes; `aster-noq-v1.4.1001` is the previous release) |
+| Tag | `aster-noq-v1.4.1002`  (`aster-noq-v1.4.1001` is the previous release) |
 | Pinned commit | `4e193fb2dc2cce206c4cd24b37b16263657bf5da` |
 | Crate version | 1.4.1002 (published with the next Aster release; the registry serves up to 1.4.2) |
 | Crates | `noq`, `noq-udp`, `noq-proto` (all three published to the Aster registry) |
@@ -83,7 +83,7 @@ Upstream `noq-v1.4.0` already carried version 1.4.0, which Aster's registry had 
 | `de89867c9` | chore: release 1.4.3 with adaptive loss thresholds and the path's minimum RTT | superseded release commit (never published or tagged) |
 | `379f73677` | chore: release 1.4.1001 under the fork version rule | release commit (tag `aster-noq-v1.4.1001`) |
 | `43f83f96e` | fix(proto): accept the handshake on another of our addresses from the same peer | `-x` of `f651040c2` (row `handshake-local-address`) |
-| `4e193fb2d` | chore: release 1.4.1002 under the fork version rule | release commit (tag `aster-noq-v1.4.1002`, to be created) |
+| `4e193fb2d` | chore: release 1.4.1002 under the fork version rule | release commit (tag `aster-noq-v1.4.1002`) |
 
 ## Patches
 
@@ -226,7 +226,7 @@ Before the current branch model, fork `main` mirrored upstream `main` and was re
 
 | Upstream base | Tag | Pinned commit | Branch |
 |---|---|---|---|
-| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.1002` (to be created after the Aster release candidate passes) | `4e193fb2dc2cce206c4cd24b37b16263657bf5da` | `upgrade/noq-v1.4.0` |
+| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.1002` | `4e193fb2dc2cce206c4cd24b37b16263657bf5da` | `upgrade/noq-v1.4.0` |
 
 - **1.4.1002** (`4e193fb2d`): row `handshake-local-address` (`43f83f96e`), then a release commit. The "vpn-paths" wave: on macOS a VPN that takes the routes over Wi-Fi makes the kernel send from the tunnel address whatever source noq pins; noq dropped the incoming handshake, which timed out. The iroh fork's `route-match-ignores-local` fixes the other half (a path opened and closed thousands of times a second). noq-proto 481, noq 39 (3 ignored), noq-udp 9 (1 ignored), 0 failed. iroh, iroh-util, iroh-gossip, iroh-blobs, iroh-docs and Salvo re-pin to it; see their ledgers.
 
