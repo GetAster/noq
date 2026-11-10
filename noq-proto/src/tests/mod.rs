@@ -1948,6 +1948,30 @@ fn regression_path_validation_stale_local_after_passive_migration() {
     );
 }
 
+/// The server's replies start leaving from another of its addresses mid-handshake, as when
+/// a VPN on macOS takes the routes: the client follows the server to that address, and the
+/// server must accept the handshake there. The peer is unchanged; only the server's own
+/// address moved.
+#[test]
+fn server_local_address_moves_during_handshake() {
+    let _guard = subscribe();
+    let mut transport = TransportConfig::default();
+    transport.server_handshake_migration(true);
+    let mut config = client_config();
+    config.transport_config(Arc::new(transport));
+
+    let mut pair = Pair::default();
+    let client_ch = pair.begin_connect(config);
+    pair.drive_client(); // the Initial reaches the server's first address
+    let now = pair.time;
+    pair.server.drive_incoming(now); // the server accepts it there
+    pair.routes.as_basic_mut().passive_migration(Server); // replies now leave from a new one
+    pair.drive();
+
+    let server_ch = pair.server.assert_accept();
+    pair.finish_connect(client_ch, server_ch);
+}
+
 fn test_flow_control(config: TransportConfig, window_size: usize) {
     let _guard = subscribe();
     let mut pair = Pair::new(
