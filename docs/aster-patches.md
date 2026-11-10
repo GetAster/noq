@@ -23,9 +23,9 @@ Historical and current tag schemes in this repository:
 |---|---|
 | Upstream base | `noq-v1.4.0` (`34f75c49f`) |
 | Integration branch | `upgrade/noq-v1.4.0` |
-| Tag | `aster-noq-v1.4.1001` (to be created after the Aster release candidate passes; `aster-noq-v1.4.2` is the previous release) |
-| Pinned commit | `379f73677c057908b7e43a40466e38d2bbe75630` |
-| Crate version | 1.4.1001 (published with the next Aster release; the registry serves up to 1.4.2) |
+| Tag | `aster-noq-v1.4.1002` (to be created after the Aster release candidate passes; `aster-noq-v1.4.1001` is the previous release) |
+| Pinned commit | `4e193fb2dc2cce206c4cd24b37b16263657bf5da` |
+| Crate version | 1.4.1002 (published with the next Aster release; the registry serves up to 1.4.2) |
 | Crates | `noq`, `noq-udp`, `noq-proto` (all three published to the Aster registry) |
 | Source repository | `https://forge.emrul.dev/Aster/noq.git` |
 
@@ -43,16 +43,16 @@ Bootstrap pin block for source-tree builds (consumers install a versioned Aster 
 
 ```toml
 [patch.crates-io]
-noq       = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "379f73677c057908b7e43a40466e38d2bbe75630" }
-noq-udp   = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "379f73677c057908b7e43a40466e38d2bbe75630" }
-noq-proto = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "379f73677c057908b7e43a40466e38d2bbe75630" }
+noq       = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "4e193fb2dc2cce206c4cd24b37b16263657bf5da" }
+noq-udp   = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "4e193fb2dc2cce206c4cd24b37b16263657bf5da" }
+noq-proto = { git = "https://forge.emrul.dev/Aster/noq.git", rev = "4e193fb2dc2cce206c4cd24b37b16263657bf5da" }
 ```
 
 The Aster iroh fork pins this commit in its own `[patch.crates-io]` (see the iroh fork's ledger, row 3), and the iroh-blobs, iroh-docs, iroh-gossip and iroh-util forks pin it in theirs.
 
 ### `upgrade/noq-v1.4.0` stack
 
-Upstream `noq-v1.4.0` already carried version 1.4.0, which Aster's registry had never served, so the 1.4.0 release had no release commit. 1.4.1, 1.4.2 and 1.4.1001 each end in a release commit; 1.4.3 (`de89867c9`) was superseded by 1.4.1001 before any publication or tag.
+Upstream `noq-v1.4.0` already carried version 1.4.0, which Aster's registry had never served, so the 1.4.0 release had no release commit. 1.4.1, 1.4.2, 1.4.1001 and 1.4.1002 each end in a release commit; 1.4.3 (`de89867c9`) was superseded by 1.4.1001 before any publication or tag.
 
 | Commit | Subject | Source |
 |---:|---|---|
@@ -81,7 +81,9 @@ Upstream `noq-v1.4.0` already carried version 1.4.0, which Aster's registry had 
 | `8c3257ad8` | fix(bbr3): save the undo state at the first loss of a round only | `-x` of `e73810709` (row `bbr3-note-loss`) |
 | `33d4a6d89` | feat(proto): report the path's minimum RTT in PathStats | `-x` of `bd717d1e1` (row `path-stats-min-rtt`) |
 | `de89867c9` | chore: release 1.4.3 with adaptive loss thresholds and the path's minimum RTT | superseded release commit (never published or tagged) |
-| `379f73677` | chore: release 1.4.1001 under the fork version rule | release commit (tag `aster-noq-v1.4.1001`, to be created) |
+| `379f73677` | chore: release 1.4.1001 under the fork version rule | release commit (tag `aster-noq-v1.4.1001`) |
+| `43f83f96e` | fix(proto): accept the handshake on another of our addresses from the same peer | `-x` of `f651040c2` (row `handshake-local-address`) |
+| `4e193fb2d` | chore: release 1.4.1002 under the fork version rule | release commit (tag `aster-noq-v1.4.1002`, to be created) |
 
 ## Patches
 
@@ -104,6 +106,7 @@ Row numbers are stable patch ids shared across Aster's iroh-family forks (iroh, 
 | `adaptive-loss-thresholds` | `fix/adaptive-loss-thresholds` (based on integration `a3c70b7af`, the 1.4.2 release) | Per-path packet and time loss thresholds that rise on spurious loss. When a packet declared lost is acknowledged afterwards, the path's packet threshold rises to the observed reordering distance (capped at 256) and its time threshold steps 9/8, 5/4, 3/2, 2; both reset on persistent congestion and on path migration. Files: `noq-proto/src/connection/mod.rs`, `noq-proto/src/connection/paths.rs`, `noq-proto/src/connection/spaces.rs`, `noq-proto/src/tests/mod.rs`. | Under mild reordering (netem jitter) the fixed thresholds declared tens of thousands of packets lost and BBRv3 collapsed. Lima, 50 ms RTT ±1 ms: Aster node 17–22 Mbit/s before, 492–502 after (TCP 421–471); 20 ms ±0.2 ms: 295–513 before, 948–1054 after. Addresses the reordering deficit left open in row `bbr3-default`. | `3ba071bd9` / `1826c407e` on `upgrade/noq-v1.4.0`, released as 1.4.1001 at `379f73677` (first declared 1.4.3 at `de89867c9`, superseded) | carried (1.4.1001, `aster-noq-v1.4.1001` once tagged) | Medium conflict risk in the loss-detection code in `connection/mod.rs` and the per-path state in `paths.rs`. Carry with `bbr3-note-loss`. Drop when an upstream release adapts its reordering thresholds on spurious loss. |
 | `bbr3-note-loss` | `fix/adaptive-loss-thresholds` (same branch, second commit, based on integration `a3c70b7af`) | BBRv3 saves its undo state only at the first loss of a round (draft-ietf-ccwg-bbr `BBRNoteLoss`), instead of on every loss. File: `noq-proto/src/congestion/bbr3/mod.rs`. | Completes `adaptive-loss-thresholds`: the undo state that a spurious-loss recovery restores must be the one from before the round's first loss. Found in the same reordering investigation. | `e73810709` / `8c3257ad8` on `upgrade/noq-v1.4.0`, released as 1.4.1001 at `379f73677` (first declared 1.4.3 at `de89867c9`, superseded) | carried (1.4.1001, `aster-noq-v1.4.1001` once tagged) | Low conflict risk, one file. Port after the BBR rows. Drop when an upstream release implements `BBRNoteLoss` equivalently. |
 | `path-stats-min-rtt` | `fix/path-stats-min-rtt` (based on integration `a3c70b7af`) | Adds `PathStats::min_rtt`, the path's minimum observed RTT. Files: `noq-proto/src/connection/mod.rs`, `noq-proto/src/connection/stats.rs`, `noq-proto/src/tests/mod.rs`. | Consumed by iroh fork row 46 (`fix/select-path-by-min-rtt`): iroh's path selector compares min RTT instead of smoothed RTT, so a path's own bulk-transfer queue no longer makes a freshly validated sibling path look faster. | `bd717d1e1` / `33d4a6d89` on `upgrade/noq-v1.4.0`, released as 1.4.1001 at `379f73677` (first declared 1.4.3 at `de89867c9`, superseded) | carried (1.4.1001, `aster-noq-v1.4.1001` once tagged) | Low conflict risk. A public-API addition on `PathStats`; iroh 1.4.2002 requires noq 1.4.1001 for it. |
+| `handshake-local-address` | `fix/handshake-local-address` (based on `noq-v1.4.0`) | During the handshake, a packet from the same remote that arrives on another of our local IPs is accepted and the path takes that local IP. Before, it was dropped twice: `early_discard_packet` ("incorrect interface") and the handshake path check ("unexpected remote"). Test: `tests::server_local_address_moves_during_handshake` (fails without the fix). File: `noq-proto`. | On macOS a VPN that takes the routes (0.0.0.0/1 and 128.0.0.0/1) over Wi-Fi makes the kernel send from the tunnel address whatever source noq pins, so incoming handshakes timed out. Pairs with iroh fork row `route-match-ignores-local`. | `f651040c2` / `43f83f96e` on `upgrade/noq-v1.4.0`, released as 1.4.1002 at `4e193fb2d` | carried (1.4.1002, `aster-noq-v1.4.1002` once tagged) | Low conflict risk: handshake and endpoint packet-routing code only. Validation: `cargo test -p noq-proto -p noq -p noq-udp`: noq-proto 481 passed, noq 39 passed (3 ignored), noq-udp 9 passed (1 ignored), 0 failed. |
 
 Bookkeeping and documentation commits (not needed at runtime):
 
@@ -219,11 +222,19 @@ Before the current branch model, fork `main` mirrored upstream `main` and was re
 
 ## History
 
-### 1.4.1001 (2026-10-28), current
+### 1.4.1002 (2026-11-10), current
 
 | Upstream base | Tag | Pinned commit | Branch |
 |---|---|---|---|
-| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.1001` (to be created after the Aster release candidate passes) | `379f73677c057908b7e43a40466e38d2bbe75630` | `upgrade/noq-v1.4.0` |
+| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.1002` (to be created after the Aster release candidate passes) | `4e193fb2dc2cce206c4cd24b37b16263657bf5da` | `upgrade/noq-v1.4.0` |
+
+- **1.4.1002** (`4e193fb2d`): row `handshake-local-address` (`43f83f96e`), then a release commit. The "vpn-paths" wave: on macOS a VPN that takes the routes over Wi-Fi makes the kernel send from the tunnel address whatever source noq pins; noq dropped the incoming handshake, which timed out. The iroh fork's `route-match-ignores-local` fixes the other half (a path opened and closed thousands of times a second). noq-proto 481, noq 39 (3 ignored), noq-udp 9 (1 ignored), 0 failed. iroh, iroh-util, iroh-gossip, iroh-blobs, iroh-docs and Salvo re-pin to it; see their ledgers.
+
+### 1.4.1001 (2026-10-28)
+
+| Upstream base | Tag | Pinned commit | Branch |
+|---|---|---|---|
+| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.1001` | `379f73677c057908b7e43a40466e38d2bbe75630` | `upgrade/noq-v1.4.0` |
 
 - **1.4.1001** (`379f73677`): rows `adaptive-loss-thresholds`, `bbr3-note-loss` and `path-stats-min-rtt`, then a release commit. `de89867c9` first declared these as 1.4.3, the next free version under the old rule; the owner's fork version rule (option E) puts the first release on upstream 1.4.0 at 1.4.1001, so 1.4.3 was superseded by `379f73677` before any publication or tag (code identical, versions only). The iroh fork requires it (iroh row 46); the satellites and Salvo keep their caret requirements and need no republication.
 
