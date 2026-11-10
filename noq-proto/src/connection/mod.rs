@@ -2364,6 +2364,7 @@ impl Connection {
 
         let peer_may_probe = self.peer_may_probe();
         let local_ip_may_migrate = self.local_ip_may_migrate();
+        let handshaking = self.is_handshaking();
 
         // If this packet could initiate a migration and we're a client or a server that
         // forbids migration, drop the datagram. This could be relaxed to heuristically
@@ -2379,10 +2380,15 @@ impl Connection {
                 return true;
             }
 
+            // During the handshake our own address may still move under the same peer:
+            // process_packet takes the new local IP (see the handshake path check there).
+            let handshake_local_move =
+                handshaking && network_path.remote == known_path.network_path.remote;
             if known_path.network_path.local_ip.is_some()
                 && network_path.local_ip.is_some()
                 && known_path.network_path.local_ip != network_path.local_ip
                 && !local_ip_may_migrate
+                && !handshake_local_move
             {
                 trace!(
                     %path_id,
@@ -4354,7 +4360,18 @@ impl Connection {
                         })
                         .unwrap_or(false)
                 {
-                    if let Some(hs) = self.state.as_handshake()
+                    if self.path_data(path_id).network_path.remote == network_path.remote {
+                        // Same peer, but the packet reached another of our addresses: the
+                        // OS now routes our replies from there, e.g. a VPN on macOS took
+                        // the routes. Take the new local IP; the peer has not moved.
+                        debug!(
+                            %network_path,
+                            prev = %self.path_data(path_id).network_path,
+                            "local address moved during handshake",
+                        );
+                        self.path_data_mut(path_id).network_path.local_ip = network_path.local_ip;
+                        self.qlog.emit_tuple_assigned(path_id, network_path, now);
+                    } else if let Some(hs) = self.state.as_handshake()
                         && hs.allow_server_migration
                     {
                         trace!(
