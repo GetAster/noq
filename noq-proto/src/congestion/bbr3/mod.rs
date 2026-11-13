@@ -18,6 +18,10 @@ const MAX_BW_FILTER_LEN: usize = 2;
 /// equivalent to BBR.ExtraAckedFilterLen <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-2.11>
 const EXTRA_ACKED_FILTER_LEN: usize = 10;
 
+/// Upper bound on BBR.extra_acked as a duration of data at BBR.max_bw (Linux BBR's
+/// `bbr_extra_acked_max_us`).
+const EXTRA_ACKED_MAX: Duration = Duration::from_millis(100);
+
 /// safety mechanism to flag packets as stale within our tracking VecDeque. rounds refer to <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-5.5.1>.
 /// The value of 10 rounds is picked because normally after max(kTimeThreshold * max(smoothed_rtt, latest_rtt), kGranularity) <https://datatracker.ietf.org/doc/html/rfc9002#section-6.1.2>
 /// the packet should have been declared lost already, this is just to guarantee that the VecDeque
@@ -850,6 +854,10 @@ impl Bbr3 {
         } else {
             self.extra_acked = extra; // In startup, just remember 1 round
         }
+        // As Linux BBR does, budget at most EXTRA_ACKED_MAX of data at max_bw for
+        // aggregation, so one long ACK gap cannot inflate the window for ten rounds.
+        let extra_acked_max = (self.max_bw * EXTRA_ACKED_MAX.as_secs_f64()) as u64;
+        self.extra_acked = Ord::min(self.extra_acked, extra_acked_max);
     }
 
     /// equivalent to BBRCheckFullBWReached <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-5.3.1.2-6>
@@ -1282,6 +1290,7 @@ impl Bbr3 {
         if self.inflight == 0 && self.app_limited != 0 {
             self.idle_restart = true;
             self.extra_acked_interval_start = Some(now);
+            self.extra_acked_delivered = 0;
             match self.state {
                 BbrState::ProbeBw(_) => {
                     self.set_pacing_rate_with_gain(1.0);
@@ -7270,5 +7279,224 @@ mod test {
         bbr.inflight_longterm = 30_000;
         bbr.note_loss(SpaceKind::Data, 9);
         assert_eq!(bbr.undo_inflight_longterm, 30_000);
+    }
+
+    /// Result of [`run_app_limited_frames`].
+    struct FrameRun {
+        /// Largest cwnd seen at the end of a frame, from frame `measure_from` on.
+        peak_cwnd: u64,
+        /// `BBR.max_bw * BBR.min_rtt` at the moment of `peak_cwnd`.
+        bdp_at_peak: u64,
+        /// Number of sends that found the connection idle and app-limited.
+        idle_restarts: u64,
+        /// Largest `BBR.extra_acked / BBR.max_bw` seen, in seconds of data at max_bw.
+        peak_extra_acked_secs: f64,
+    }
+
+    /// Drive a real-time sender on a clean FIFO link with no loss: every
+    /// `frame_interval_ns` the application queues `frame_bytes`, sends it as fast as the
+    /// window and pacing allow, then has nothing more to send. Acks arriving with the
+    /// queue empty report the flow as app-limited, as the connection does, so every frame
+    /// whose predecessor has fully drained starts with `handle_restart_from_idle`.
+    fn run_app_limited_frames(
+        link_bw: f64,
+        rtt_ns: u64,
+        frame_bytes: u64,
+        frame_interval_ns: u64,
+        frames: u64,
+        backlogged_frames: u64,
+        ack_batch_ns: u64,
+        measure_from: u64,
+        probe_seed: u8,
+    ) -> FrameRun {
+        const MSS: u64 = 1200;
+        let fwd_ns = rtt_ns / 2;
+        let ret_ns = rtt_ns - fwd_ns;
+        let btl_service_ns = (MSS as f64 / link_bw * 1e9).round() as u64;
+
+        let config = Bbr3Config {
+            probe_rng_seed: Some([probe_seed; 16]),
+            ..Bbr3Config::default()
+        };
+        let mut bbr = Bbr3::new(Arc::new(config), MSS as u16);
+        let base = Instant::now();
+        let at = |off_ns: u64| base + Duration::from_nanos(off_ns);
+        let mut rtt_est = RttEstimator::new(Duration::from_nanos(rtt_ns));
+
+        let mut flight: VecDeque<SimPacket> = VecDeque::new();
+        let mut now_ns: u64 = 0;
+        let mut next_send_ns: u64 = 0;
+        let mut btl_free_ns: u64 = 0;
+        let mut inflight: u64 = 0;
+        let mut pn: u64 = 0;
+        let mut queued: u64 = 0;
+        let mut run = FrameRun {
+            peak_cwnd: 0,
+            bdp_at_peak: 0,
+            idle_restarts: 0,
+            peak_extra_acked_secs: 0.0,
+        };
+
+        for frame in 0..frames {
+            let frame_ns = frame * frame_interval_ns;
+            // Deliver every ack due before this frame is produced.
+            while flight.front().is_some_and(|p| p.ack_ns <= frame_ns) {
+                let p = flight.pop_front().unwrap();
+                now_ns = now_ns.max(p.ack_ns);
+                inflight -= MSS;
+                rtt_est.update(Duration::ZERO, Duration::from_nanos(now_ns - p.send_ns));
+                bbr.on_ack(
+                    at(now_ns),
+                    at(p.send_ns),
+                    MSS,
+                    p.pn,
+                    SpaceKind::Data,
+                    queued == 0,
+                    &rtt_est,
+                );
+                bbr.on_end_acks(
+                    at(now_ns),
+                    inflight,
+                    queued == 0,
+                    Some(p.pn),
+                    SpaceKind::Data,
+                );
+            }
+            now_ns = now_ns.max(frame_ns);
+            next_send_ns = next_send_ns.max(frame_ns);
+            // The first frames offer more than the link carries in a frame interval, so
+            // the flow leaves STARTUP and reaches PROBE_BW with a measured max_bw.
+            let offered = if frame < backlogged_frames {
+                (2.0 * link_bw * frame_interval_ns as f64 / 1e9) as u64
+            } else {
+                frame_bytes
+            };
+            queued += offered.div_ceil(MSS);
+
+            // Send the frame, interleaving acks, until it is all out.
+            while queued > 0 {
+                let can_send = inflight + MSS <= bbr.window();
+                let next_ack = flight.front().map(|p| p.ack_ns);
+                if can_send && next_ack.is_none_or(|ack| next_send_ns <= ack) {
+                    now_ns = now_ns.max(next_send_ns);
+                    let send_ns = now_ns;
+                    let finish = (send_ns + fwd_ns).max(btl_free_ns) + btl_service_ns;
+                    btl_free_ns = finish;
+                    if bbr.inflight == 0 && bbr.app_limited != 0 {
+                        run.idle_restarts += 1;
+                    }
+                    bbr.on_packet_sent(at(send_ns), MSS as u16, pn, SpaceKind::Data);
+                    inflight += MSS;
+                    flight.push_back(SimPacket {
+                        pn,
+                        send_ns,
+                        // The receiver acks everything that has arrived at the end of each
+                        // `ack_batch_ns` slot, as delayed acks and receive batching do.
+                        ack_ns: finish.div_ceil(ack_batch_ns) * ack_batch_ns + ret_ns,
+                    });
+                    let pacing = bbr.pacing_rate.max(1.0);
+                    next_send_ns = send_ns + (MSS as f64 / pacing * 1e9).round() as u64;
+                    pn += 1;
+                    queued -= 1;
+                } else {
+                    let p = flight
+                        .pop_front()
+                        .expect("window full with nothing in flight");
+                    now_ns = now_ns.max(p.ack_ns);
+                    inflight -= MSS;
+                    rtt_est.update(Duration::ZERO, Duration::from_nanos(now_ns - p.send_ns));
+                    bbr.on_ack(
+                        at(now_ns),
+                        at(p.send_ns),
+                        MSS,
+                        p.pn,
+                        SpaceKind::Data,
+                        false,
+                        &rtt_est,
+                    );
+                    bbr.on_end_acks(at(now_ns), inflight, false, Some(p.pn), SpaceKind::Data);
+                }
+            }
+
+            if frame >= measure_from && bbr.max_bw > 0.0 {
+                let secs = bbr.extra_acked as f64 / bbr.max_bw;
+                run.peak_extra_acked_secs = run.peak_extra_acked_secs.max(secs);
+            }
+            if frame >= measure_from && bbr.cwnd > run.peak_cwnd {
+                run.peak_cwnd = bbr.cwnd;
+                run.bdp_at_peak = (bbr.max_bw * bbr.min_rtt.as_secs_f64()).round() as u64;
+            }
+        }
+        run
+    }
+
+    /// A real-time stream on a fast clean LAN from the start of the connection:
+    /// 100 Mbit/s, 2 ms RTT, acks batched every 4 ms, 30 KB frames at 60 fps (about
+    /// 1.8 MB/s) for 30 s. The stream never fills the link, so it stays in STARTUP, and
+    /// the link drains between frames, so nearly every frame starts with
+    /// `handle_restart_from_idle`.
+    ///
+    /// The restart opens a new aggregation epoch. If it keeps the delivered count of the
+    /// previous epoch, that count only grows: each epoch's expected delivery starts from
+    /// zero again while the carried bytes stay, so `extra_acked` sits at its cap,
+    /// `max_inflight` stays above the cwnd and the cwnd grows by every acked byte (to
+    /// about 0.7 MB, 46 BDP, with the EXTRA_ACKED_MAX cap; to tens of MB without it). With
+    /// the count reset, the window stays within a few BDP.
+    #[test]
+    fn idle_restart_starts_a_fresh_ack_aggregation_epoch() {
+        const FRAMES: u64 = 30 * 60;
+        let run = run_app_limited_frames(
+            12_500_000.0,
+            2_000_000,
+            30_000,
+            16_666_667,
+            FRAMES,
+            0,
+            4_000_000,
+            60,
+            1,
+        );
+        assert!(
+            run.idle_restarts >= FRAMES / 2,
+            "the stream should restart from idle on most frames, got {}",
+            run.idle_restarts
+        );
+        assert!(run.bdp_at_peak > 0, "the flow should have a BDP estimate");
+        assert!(
+            run.peak_cwnd <= 10 * run.bdp_at_peak,
+            "cwnd {} should stay within 10 BDP ({}) on a clean path",
+            run.peak_cwnd,
+            run.bdp_at_peak
+        );
+    }
+
+    /// A backlogged flow whose receiver acks only every 300 ms (100 Mbit/s, 20 ms RTT).
+    /// Each batch acks about 300 ms of data at once, so the aggregation estimate alone
+    /// would add about 0.3 s of data at max_bw to the window. It is capped at
+    /// EXTRA_ACKED_MAX (100 ms).
+    #[test]
+    fn extra_acked_is_capped_at_100ms_of_max_bw() {
+        let run = run_app_limited_frames(
+            12_500_000.0,
+            20_000_000,
+            0,
+            16_666_667,
+            600,
+            600,
+            300_000_000,
+            120,
+            1,
+        );
+        assert!(
+            run.peak_extra_acked_secs > 0.09,
+            "the aggregation estimate should reach the cap, got {:.3} s",
+            run.peak_extra_acked_secs
+        );
+        assert!(
+            run.peak_extra_acked_secs <= EXTRA_ACKED_MAX.as_secs_f64() + 1e-9,
+            "extra_acked should be at most {:?} of max_bw, got {:.3} s",
+            EXTRA_ACKED_MAX,
+            run.peak_extra_acked_secs
+        );
     }
 }
