@@ -84,8 +84,8 @@ const PROBE_RTT_DURATION_MS: u64 = 200;
 /// ProbeRTT states: 5 secs.
 const PROBE_RTT_INTERVAL_SEC: u64 = 5;
 
-/// equivalent to BBR.LossThresh: A constant specifying the maximum tolerated per-round-trip packet
-/// loss rate when probing for bandwidth (the default is 2%).
+/// equivalent to BBR.LossThresh: the default maximum tolerated per-round-trip packet loss rate
+/// when probing for bandwidth (2%). [`Bbr3Config::loss_threshold`] overrides it.
 const LOSS_THRESH: f64 = 0.02;
 
 /// equivalent to BBR.Beta: A constant specifying the default multiplicative decrease to make upon
@@ -283,6 +283,8 @@ struct BbrRateSample {
 /// <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-2.1>
 #[derive(Debug, Clone)]
 pub struct Bbr3 {
+    /// equivalent to BBR.LossThresh, from [`Bbr3Config::loss_threshold`] or [`LOSS_THRESH`].
+    loss_thresh: f64,
     /// equivalent to C.SMSS The Sender Maximum Send Size in bytes. <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-2.1>
     /// <https://www.rfc-editor.org/rfc/rfc9000#name-datagram-size>
     smss: u64,
@@ -616,10 +618,12 @@ impl Bbr3 {
             .probe_bw_up_cwnd_gain
             .unwrap_or(PROBE_BW_UP_CWND_GAIN);
         let probe_rtt_cwnd_gain = config.probe_rtt_cwnd_gain.unwrap_or(PROBE_RTT_CWND_GAIN);
+        let loss_thresh = config.loss_thresh.unwrap_or(LOSS_THRESH);
         // the calculation for initial pacing rate described here <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-5.6.2-5>
         let nominal_bandwidth = initial_cwnd as f64 / 0.001;
         let pacing_rate = startup_pacing_gain * nominal_bandwidth;
         Self {
+            loss_thresh,
             smss,
             initial_cwnd,
             delivered: 0,
@@ -1561,7 +1565,7 @@ impl Bbr3 {
     /// equivalent to IsInflightTooHigh <https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-05.html#section-5.5.10.2-1>
     fn is_inflight_too_high(&self) -> bool {
         if let Some(rate_sample) = self.rs {
-            return rate_sample.lost as f64 > rate_sample.tx_in_flight as f64 * LOSS_THRESH;
+            return rate_sample.lost as f64 > rate_sample.tx_in_flight as f64 * self.loss_thresh;
         }
         false
     }
@@ -1574,7 +1578,7 @@ impl Bbr3 {
         };
         let inflight_prev = rate_sample.tx_in_flight.saturating_sub(packet_size) as f64;
         let lost_prev = rate_sample.lost.saturating_sub(packet_size) as f64;
-        let lost_prefix = (LOSS_THRESH * inflight_prev - lost_prev) / (1.0 - LOSS_THRESH);
+        let lost_prefix = (self.loss_thresh * inflight_prev - lost_prev) / (1.0 - self.loss_thresh);
         (inflight_prev + lost_prefix) as u64
     }
 
@@ -2070,6 +2074,7 @@ pub struct Bbr3Config {
     drain_pacing_gain: Option<f64>,
     pacing_margin_percent: Option<f64>,
     default_cwnd_gain: Option<f64>,
+    loss_thresh: Option<f64>,
 }
 
 impl Bbr3Config {
@@ -2078,6 +2083,26 @@ impl Bbr3Config {
     /// Recommended value: `min(10 * max_datagram_size, max(2 * max_datagram_size, 14720))`
     pub fn initial_window(&mut self, value: u64) -> &mut Self {
         self.initial_window = value;
+        self
+    }
+
+    /// Per-round-trip loss rate above which a bandwidth probe treats loss as congestion, ends,
+    /// and caps the long-term inflight bound (BBR.LossThresh). The default is 2%, as BBRv3
+    /// specifies.
+    ///
+    /// A higher value keeps throughput on paths with sustained random loss, such as radio links,
+    /// at the cost of backing off later under moderate congestion loss on a shared bottleneck.
+    /// A full drop-tail queue still loses well above any sensible threshold during a probe.
+    ///
+    /// # Panics
+    ///
+    /// If `value` is not finite or is outside `(0.0, 1.0)`.
+    pub fn loss_threshold(&mut self, value: f64) -> &mut Self {
+        assert!(
+            value.is_finite() && value > 0.0 && value < 1.0,
+            "BBRv3 loss threshold must be in (0, 1), got {value}"
+        );
+        self.loss_thresh = Some(value);
         self
     }
 }
@@ -2098,6 +2123,7 @@ impl Default for Bbr3Config {
             drain_pacing_gain: None,
             pacing_margin_percent: None,
             default_cwnd_gain: None,
+            loss_thresh: None,
         }
     }
 }
@@ -2482,6 +2508,7 @@ mod test {
             drain_pacing_gain: None,
             pacing_margin_percent: None,
             default_cwnd_gain: None,
+            loss_thresh: None,
         };
         let mut bbr3 = Bbr3::new(Arc::new(config), 2500);
         bbr3.pick_probe_wait();
@@ -7498,5 +7525,35 @@ mod test {
             EXTRA_ACKED_MAX,
             run.peak_extra_acked_secs
         );
+    }
+
+    /// 3% loss over a round exceeds the default 2% threshold but not a configured 5% one.
+    #[test]
+    fn loss_threshold_setting_moves_the_inflight_too_high_boundary() {
+        const MSS: u16 = 1200;
+        let too_high = |config: Bbr3Config| {
+            let mut bbr = Bbr3::new(Arc::new(config), MSS);
+            let base = Instant::now();
+            let rtt = RttEstimator::new(Duration::from_millis(50));
+            for pn in 0..100 {
+                bbr.on_packet_sent(base, MSS, pn, SpaceKind::Data);
+            }
+            let now = base + Duration::from_millis(50);
+            for pn in 0..3 {
+                bbr.on_packet_lost(MSS, pn, SpaceKind::Data, now);
+            }
+            bbr.on_ack(now, base, MSS as u64, 99, SpaceKind::Data, false, &rtt);
+            bbr.is_inflight_too_high()
+        };
+        assert!(too_high(Bbr3Config::default()));
+        let mut tolerant = Bbr3Config::default();
+        tolerant.loss_threshold(0.05);
+        assert!(!too_high(tolerant));
+    }
+
+    #[test]
+    #[should_panic(expected = "loss threshold must be in (0, 1)")]
+    fn loss_threshold_rejects_values_outside_the_unit_interval() {
+        Bbr3Config::default().loss_threshold(1.0);
     }
 }
