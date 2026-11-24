@@ -44,6 +44,7 @@ mod tests;
 pub mod transport_parameters;
 mod varint;
 
+use identity_hash::IdentityHashable;
 pub use varint::{VarInt, VarIntBoundsExceeded};
 
 #[cfg(feature = "bloom")]
@@ -57,7 +58,7 @@ pub use crate::connection::{
     ConnectionStats, Datagrams, Event, FinishError, FrameStats, MultipathNotNegotiated,
     NetworkChangeHint, PathAbandonReason, PathError, PathEvent, PathId, PathStats, PathStatus,
     ReadError, ReadableError, RecvStream, RttEstimator, SendDatagramError, SendStream,
-    SetPathStatusError, ShouldTransmit, StreamEvent, Streams, UdpStats, WriteError,
+    SetPathStatusError, ShouldTransmit, StreamAffinity, StreamEvent, Streams, UdpStats, WriteError,
 };
 #[cfg(test)]
 use test_strategy::Arbitrary;
@@ -143,6 +144,29 @@ pub(crate) type IntMap<K, V> = identity_hash::IntMap<K, V>;
 pub(crate) mod hash_map {
     #[expect(clippy::disallowed_types)]
     pub(crate) type Entry<'a, K, V> = std::collections::hash_map::Entry<'a, K, V>;
+
+    #[expect(clippy::disallowed_types)]
+    pub(crate) type OccupiedEntry<'a, K, V> = std::collections::hash_map::OccupiedEntry<'a, K, V>;
+}
+
+/// Float math that needs `std`
+///
+/// Some `f64` methods are in `std` but not in `core`. A build without `std` must replace
+/// them with a crate such as `libm`. Only this module calls them, to keep the replacement in
+/// one place.
+pub(crate) mod math {
+    #[expect(clippy::disallowed_methods)]
+    pub(crate) fn round(x: f64) -> f64 {
+        x.round()
+    }
+    #[expect(clippy::disallowed_methods)]
+    pub(crate) fn cbrt(x: f64) -> f64 {
+        x.cbrt()
+    }
+    #[expect(clippy::disallowed_methods)]
+    pub(crate) fn powi(x: f64, n: i32) -> f64 {
+        x.powi(n)
+    }
 }
 
 #[cfg(feature = "bench")]
@@ -356,6 +380,20 @@ impl Encodable for StreamId {
 impl<'arbitrary> arbitrary::Arbitrary<'arbitrary> for StreamId {
     fn arbitrary(u: &mut arbitrary::Unstructured<'arbitrary>) -> arbitrary::Result<Self> {
         Ok(VarInt::arbitrary(u)?.into())
+    }
+}
+
+/// An internal map key that uses identity hashing for [`StreamId`].
+///
+/// Keeps [`IdentityHashable`] out of the public [`StreamId`] API.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+struct StreamIdKey(StreamId);
+
+impl IdentityHashable for StreamIdKey {}
+
+impl core::hash::Hash for StreamIdKey {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.0.0);
     }
 }
 
