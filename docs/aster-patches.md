@@ -284,7 +284,7 @@ Before the current branch model, fork `main` mirrored upstream `main` and was re
 
 | Upstream base | Tag | Pinned commit | Branch |
 |---|---|---|---|
-| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.1003` | `819373fafcd4a21aaf5a81352224218caa462b44` | `upgrade/noq-v1.4.0` |
+| `noq-v1.4.0` (`34f75c49f`) | `aster-noq-v1.4.1003` | `292f5c1ef036f892f6bd5995b4f75b8a1e9d288f` | `upgrade/noq-v1.4.0` |
 
 - **1.4.1003** (`292f5c1ef`): row `bbr3-ack-aggregation-bound` (`f040da9f2`), then a release commit. The "bbr3-ack-aggregation" wave: an app-limited flow no longer grows cwnd by every acked byte, so it backs off within about a second of a capacity drop. noq-proto 483, noq 39 (3 ignored), noq-udp 9 (1 ignored), 0 failed. Salvo re-pins to it (1.0.2004); iroh and its satellites require noq by caret and are unchanged.
 
