@@ -65,7 +65,7 @@ bytes = { workspace = true }
 derive_more = { workspace = true }
 futures-io = { workspace = true, optional = true }
 pin-project-lite = { workspace = true }
-proto = { package = "noq-proto", path = "../noq-proto", version = "1.3.0", default-features = false }
+proto = { package = "noq-proto", path = "../noq-proto", version = "1.5.1001", default-features = false }
 rustc-hash = { workspace = true }
 rustls = { workspace = true, optional = true }
 smol = { workspace = true, optional = true }
@@ -73,7 +73,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { version = "0.1.15", features = ["sync"] }
 tracing =  { workspace = true }
-udp = { package = "noq-udp", path = "../noq-udp", version = "1.3.0", default-features = false, features = ["tracing"] }
+udp = { package = "noq-udp", path = "../noq-udp", version = "1.5.1001", default-features = false, features = ["tracing"] }
 
 # Fix minimal dependencies for indirect deps. cfg(false) avoid being
 # flagged by cargo::unused_dependencies but does get used for version
