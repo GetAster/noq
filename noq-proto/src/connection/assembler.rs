@@ -873,6 +873,126 @@ mod test {
     }
 
     #[test]
+    fn contiguous_packets_behind_one_gap_survive_chunk_pressure() {
+        const PACKET: usize = 1200;
+        const PACKETS: usize = COMPACT_THRESHOLD * 4;
+        let stream: Vec<u8> = (0..(PACKETS + 1) * PACKET)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let mut x = Assembler::new();
+        // Withhold one packet while several batches of fully utilized buffers arrive.
+        for i in 1..=PACKETS {
+            let offset = i * PACKET;
+            x.insert(
+                offset as u64,
+                Bytes::copy_from_slice(&stream[offset..offset + PACKET]),
+                PACKET,
+            )
+            .expect("one gap must not exhaust the span limit");
+            assert!(x.data.len() <= COMPACT_THRESHOLD);
+        }
+        assert!(x.read(usize::MAX, true).is_none());
+        x.insert(0, Bytes::copy_from_slice(&stream[..PACKET]), PACKET)
+            .unwrap();
+        // Partial ordered reads and read_into must both recover the exact stream.
+        let mut got = Vec::new();
+        while let Some(chunk) = x.read(PACKET / 2, true) {
+            got.extend_from_slice(&chunk.bytes);
+            let mut buf = [0; PACKET];
+            let n = x.read_into(&mut buf, true);
+            got.extend_from_slice(&buf[..n]);
+        }
+        assert_eq!(got, stream);
+        assert_eq!(x.buffered, 0);
+        assert_eq!(x.allocated, 0);
+    }
+
+    #[test]
+    fn compacted_large_span_does_not_hide_excess_gaps() {
+        let mut x = Assembler::new();
+        for i in 1..=COMPACT_THRESHOLD {
+            x.insert(i as u64, Bytes::from_static(b"x"), 1).unwrap();
+        }
+        // First force the contiguous prefix to coalesce, then exhaust the distinct-span cap.
+        let mut result = Ok(());
+        for i in 0..COMPACT_THRESHOLD {
+            result = x.insert(
+                (COMPACT_THRESHOLD + 2 + i * 2) as u64,
+                Bytes::from_static(b"x"),
+                1,
+            );
+            if result.is_err() {
+                break;
+            }
+        }
+        assert_matches!(result, Err(TooManyChunks));
+    }
+
+    #[test]
+    fn chunk_pressure_preserves_multiple_runs_and_retransmits() {
+        const PACKET: usize = 1200;
+        const RUNS: usize = MAX_CHUNKS / 2 + 8;
+        let stream: Vec<u8> = (0..RUNS * 5 * PACKET).map(|i| (i % 251) as u8).collect();
+        for ordered in [true, false] {
+            let mut x = Assembler::new();
+            x.ensure_ordering(ordered).unwrap();
+            // Four packets per run, delivered backwards, with a withheld packet between runs.
+            for run in 0..RUNS {
+                for packet in (1..5).rev().chain(core::iter::once(2)) {
+                    let offset = (run * 5 + packet) * PACKET;
+                    x.insert(
+                        offset as u64,
+                        Bytes::copy_from_slice(&stream[offset..offset + PACKET]),
+                        PACKET,
+                    )
+                    .unwrap();
+                }
+            }
+            for run in 0..RUNS {
+                let offset = run * 5 * PACKET;
+                x.insert(
+                    offset as u64,
+                    Bytes::copy_from_slice(&stream[offset..offset + PACKET]),
+                    PACKET,
+                )
+                .unwrap();
+            }
+            let mut delivered = vec![false; stream.len()];
+            drain(&mut x, 793, ordered, &stream, &mut delivered);
+            assert!(delivered.iter().all(|&received| received));
+            assert_eq!(x.buffered, 0);
+            assert_eq!(x.allocated, 0);
+        }
+    }
+
+    #[test]
+    fn unordered_chunk_pressure_preserves_offsets_below_bytes_read() {
+        const PACKET: usize = 1200;
+        const PACKETS: usize = COMPACT_THRESHOLD + 2;
+        let stream: Vec<u8> = (0..PACKETS * PACKET).map(|i| (i % 251) as u8).collect();
+        let mut x = Assembler::new();
+        x.ensure_ordering(false).unwrap();
+        let high = (PACKETS - 1) * PACKET;
+        x.insert(high as u64, Bytes::copy_from_slice(&stream[high..]), PACKET)
+            .unwrap();
+        let mut delivered = vec![false; stream.len()];
+        drain(&mut x, PACKET, false, &stream, &mut delivered);
+        assert_eq!(x.bytes_read(), PACKET as u64);
+        // Unordered bytes_read counts delivered bytes, not a consumed stream prefix.
+        for offset in (0..high).step_by(PACKET) {
+            x.insert(
+                offset as u64,
+                Bytes::copy_from_slice(&stream[offset..offset + PACKET]),
+                PACKET,
+            )
+            .unwrap();
+        }
+        drain(&mut x, 793, false, &stream, &mut delivered);
+        assert!(delivered.iter().all(|&received| received));
+        assert_eq!(x.bytes_read(), stream.len() as u64);
+    }
+
+    #[test]
     fn bounded_chunks_unordered_overlap_flood() {
         // Overlapping frames whose tail is already received: the dedup loop pushes
         // the fresh head byte and leaves `bytes` empty, and `end` never rises, so
